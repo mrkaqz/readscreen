@@ -1,0 +1,11 @@
+{
+    "method": "replace",
+    "tesseract_config": "--psm 6 --oem 1",
+    "scale_factor": "3",
+    "tool": "rss",
+    "locate": "auto",
+    "loc_x1": "1124",
+    "loc_y1": "884",
+    "loc_x2": "1555",
+    "loc_y2": "944"
+}

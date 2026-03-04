@@ -1,0 +1,8 @@
+{
+    "method" : "replace",
+    "tesseract_config" : "--psm 6 --oem 1"
+    "loc_x1" : "709",
+    "loc_y1" : "814",
+    "loc_x2" : "1208",
+    "loc_y2" : "884",
+}

@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.bak
+
+# Virtual environment
+venv/
+
+# Nuitka build artifacts
+*.build/
+*.dist/
+*.onefile-build/
+*.pdb
+main-auto.exe
+main-gui.exe
+create-config.exe
+
+# Distribution folders
+dist-exe/
+dist-gui/
+
+# Tesseract (large; run setup_tesseract.py to create locally)
+tesseract/
+tesseract-ocr-w64-setup-v5.0.0-alpha.20201127.exe
+eng.traineddata
+eng.traineddata_combine
+eng.traineddata_original
+
+# Runtime output
+output.csv
+
+# Config backup
+*.bak
+tess_config.json.bak
+
+# Old Excel versions (keep only latest)
+Survey Realtime Track Sheet-Auto V.0.2.9.xlsm
+Survey Realtime Track Sheet-Auto V.0.2.10.xlsm
+Survey Realtime Track Sheet-Auto V.0.2.11.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.1.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.2.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.3.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.4.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.5.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.6.xlsm
+Survey Realtime Track Sheet-Auto V.0.3.7.xlsm
+
+# Debug / scratch files
+check.py
+colordect.py
+grab.py
+test.py
+mouse-linux.py
+mouse-win.py
+fullscreen.png
+monitor-1.png
+monitor-2.png
+rf_cap.png
+sample5.png
+screenshot.png
+screenshot_replace.png
+screenshot_resize.png
+screenshot_resize_thr.png
+test.png
+testimg.png
+test_image_altered_background.jpg
+convert py to exe.txt
+
+# IDE
+.vscode/
+.claude/
+
+# Windows
+Thumbs.db
+desktop.ini
