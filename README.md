@@ -4,8 +4,6 @@
 
 It comes in two flavours: a **CLI version** (`main-auto.py`) with a rich terminal UI and a **GUI version** (`main-gui.py`) with a modern dark-themed interface.
 
-![ReadScreen GUI](Sample1.png)
-
 ---
 
 ## Features
