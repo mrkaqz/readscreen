@@ -92,17 +92,19 @@ class App(tk.Tk):
         super().__init__()
         self.title(f'Read Screen  v{VERSION}')
         self.configure(bg=self.P['base'])
-        self.minsize(500, 660)
+        self.geometry('420x420')
+        self.minsize(360, 320)
         self.resizable(True, True)
 
         self._stop_event = threading.Event()
         self._worker     = None
         self._queue      = queue.Queue()
 
-        self.var_method = tk.StringVar(value='replace')
-        self.var_tool   = tk.StringVar(value='rss')
-        self.var_locate = tk.StringVar(value='auto')
-        self.var_scale  = tk.StringVar(value='3')
+        self.var_method   = tk.StringVar(value='replace')
+        self.var_tool     = tk.StringVar(value='rss')
+        self.var_locate   = tk.StringVar(value='auto')
+        self.var_scale    = tk.StringVar(value='3')
+        self.var_interval = tk.StringVar(value='2')
         self.var_x1     = tk.StringVar(value='10')
         self.var_y1     = tk.StringVar(value='10')
         self.var_x2     = tk.StringVar(value='100')
@@ -126,13 +128,13 @@ class App(tk.Tk):
                         bg=parent['bg'], fg=fg or self.P['text'],
                         font=font or ('Segoe UI', 9), **kw)
 
-    def _radio(self, parent, text, var, value, command=None):
+    def _radio(self, parent, text, var, value, command=None, font=None):
         return tk.Radiobutton(parent, text=text, variable=var, value=value,
                               bg=parent['bg'], fg=self.P['text'],
                               selectcolor=self.P['surface0'],
                               activebackground=parent['bg'],
                               activeforeground=self.P['text'],
-                              font=('Segoe UI', 9), command=command)
+                              font=font or ('Segoe UI', 9), command=command)
 
     def _entry(self, parent, var, width=6):
         return tk.Entry(parent, textvariable=var, width=width,
@@ -144,12 +146,13 @@ class App(tk.Tk):
                         highlightbackground=self.P['surface1'],
                         font=('Consolas', 9))
 
-    def _flat_btn(self, parent, text, bg, fg, command, **kw):
+    def _flat_btn(self, parent, text, bg, fg, command, font=None, pady=None, **kw):
         return tk.Button(parent, text=text, bg=bg, fg=fg,
                          activebackground=self._lighten(bg),
                          activeforeground=fg,
-                         font=('Segoe UI', 10, 'bold'),
-                         relief='flat', bd=0, padx=16, pady=9,
+                         font=font or ('Segoe UI', 10, 'bold'),
+                         relief='flat', bd=0, padx=16,
+                         pady=pady if pady is not None else 9,
                          cursor='hand2', command=command, **kw)
 
     def _section_label(self, text):
@@ -163,226 +166,253 @@ class App(tk.Tk):
     # ── Build UI ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         self._build_header()
-        self._build_config()
-        self._build_controls()
-        self._build_data_cards()
+        self._build_tab_bar()
+        self._build_setup_tab()
+        self._build_data_tab()
         self._build_statusbar()
         self._build_log()
+        self._show_tab('Setup')
+
+    # ── Tab switching ──────────────────────────────────────────────────────────
+    def _show_tab(self, name):
+        for n, frame in self._tab_frames.items():
+            if n == name:
+                frame.pack(fill='x')
+                self._tab_btns[n].configure(
+                    bg=self.P['lavender'], fg=self.P['crust'])
+            else:
+                frame.pack_forget()
+                self._tab_btns[n].configure(
+                    bg=self.P['surface0'], fg=self.P['subtext0'])
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _build_header(self):
-        hdr = tk.Frame(self, bg=self.P['crust'], height=52)
+        hdr = tk.Frame(self, bg=self.P['crust'], height=30)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
 
-        # Left: accent dot + title
         left = tk.Frame(hdr, bg=self.P['crust'])
-        left.pack(side='left', fill='y', padx=(16, 0))
+        left.pack(side='left', fill='y', padx=(10, 0))
 
-        dot = tk.Canvas(left, width=10, height=10,
+        dot = tk.Canvas(left, width=7, height=7,
                         bg=self.P['crust'], highlightthickness=0)
-        dot.pack(side='left', pady=21)
-        dot.create_oval(0, 0, 10, 10, fill=self.P['green'], outline='')
+        dot.pack(side='left', pady=11)
+        dot.create_oval(0, 0, 7, 7, fill=self.P['green'], outline='')
 
         tk.Label(left, text='Maxwell Read Screen',
                  bg=self.P['crust'], fg=self.P['text'],
-                 font=('Segoe UI', 12, 'bold')).pack(side='left', padx=(8, 0))
+                 font=('Segoe UI', 9, 'bold')).pack(side='left', padx=(6, 0))
 
-        # Right: version badge
-        badge = tk.Frame(hdr, bg=self.P['surface0'])
-        badge.pack(side='right', padx=16, pady=16)
-        tk.Label(badge, text=f'v{VERSION}',
-                 bg=self.P['surface0'], fg=self.P['subtext0'],
-                 font=('Segoe UI', 8), padx=8, pady=3).pack()
+        tk.Label(hdr, text=f'v{VERSION}',
+                 bg=self.P['crust'], fg=self.P['overlay0'],
+                 font=('Segoe UI', 8)).pack(side='right', padx=10)
 
-    # ── Configuration ─────────────────────────────────────────────────────────
-    def _build_config(self):
-        self._section_label('CONFIGURATION')
+    # ── Tab bar ───────────────────────────────────────────────────────────────
+    def _build_tab_bar(self):
+        bar = tk.Frame(self, bg=self.P['surface0'], height=26)
+        bar.pack(fill='x')
+        bar.pack_propagate(False)
 
-        card = tk.Frame(self, bg=self.P['mantle'])
-        card.pack(fill='x', padx=12)
+        self._tab_frames = {}
+        self._tab_btns   = {}
 
-        inner = tk.Frame(card, bg=self.P['mantle'])
-        inner.pack(fill='x', padx=16, pady=12)
+        for name in ('Setup', 'Data'):
+            btn = tk.Button(bar, text=name,
+                            bg=self.P['surface0'], fg=self.P['subtext0'],
+                            activebackground=self.P['lavender'],
+                            activeforeground=self.P['crust'],
+                            font=('Segoe UI', 8, 'bold'),
+                            relief='flat', bd=0, padx=14, pady=4,
+                            cursor='hand2',
+                            command=lambda n=name: self._show_tab(n))
+            btn.pack(side='left')
+            self._tab_btns[name] = btn
+
+    # ── Setup tab ─────────────────────────────────────────────────────────────
+    def _build_setup_tab(self):
+        F = tk.Frame(self, bg=self.P['mantle'])
+        self._tab_frames['Setup'] = F
+
+        inner = tk.Frame(F, bg=self.P['mantle'])
+        inner.pack(fill='x', padx=10, pady=6)
 
         # Row 0: Method + Tool
         r0 = tk.Frame(inner, bg=self.P['mantle'])
-        r0.pack(fill='x', pady=(0, 10))
+        r0.pack(fill='x', pady=(0, 3))
 
         self._lbl(r0, 'Method', fg=self.P['subtext0'],
-                  font=('Segoe UI', 9)).pack(side='left')
-        tk.Frame(r0, width=8, bg=self.P['mantle']).pack(side='left')
-
-        # tk.OptionMenu for full colour control
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r0, width=4, bg=self.P['mantle']).pack(side='left')
         om = tk.OptionMenu(r0, self.var_method,
                            'replace', 'replace', 'threshold', 'original')
         om.configure(bg=self.P['surface0'], fg=self.P['text'],
                      activebackground=self.P['surface1'],
                      activeforeground=self.P['text'],
                      highlightthickness=0, relief='flat',
-                     font=('Segoe UI', 9), bd=0, padx=8, pady=4,
-                     indicatoron=True)
+                     font=('Segoe UI', 8), bd=0, padx=5, pady=1)
         om['menu'].configure(bg=self.P['surface0'], fg=self.P['text'],
                              activebackground=self.P['lavender'],
                              activeforeground=self.P['crust'],
-                             font=('Segoe UI', 9), bd=0)
-        om.pack(side='left', padx=(0, 28))
+                             font=('Segoe UI', 8), bd=0)
+        om.pack(side='left', padx=(0, 16))
 
         self._lbl(r0, 'Tool', fg=self.P['subtext0'],
-                  font=('Segoe UI', 9)).pack(side='left', padx=(0, 8))
-        self._radio(r0, 'RSS',   self.var_tool, 'rss').pack(side='left')
-        self._radio(r0, 'Motor', self.var_tool, 'motor').pack(side='left', padx=(8, 0))
+                  font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
+        self._radio(r0, 'RSS',   self.var_tool, 'rss',
+                    font=('Segoe UI', 8)).pack(side='left')
+        self._radio(r0, 'Motor', self.var_tool, 'motor',
+                    font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
 
         # Row 1: Scale + Locate
         r1 = tk.Frame(inner, bg=self.P['mantle'])
-        r1.pack(fill='x', pady=(0, 10))
+        r1.pack(fill='x', pady=(0, 3))
 
         self._lbl(r1, 'Scale', fg=self.P['subtext0'],
-                  font=('Segoe UI', 9)).pack(side='left')
-        tk.Frame(r1, width=8, bg=self.P['mantle']).pack(side='left')
-        self._entry(r1, self.var_scale, width=4).pack(side='left', padx=(0, 28))
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r1, width=4, bg=self.P['mantle']).pack(side='left')
+        self._entry(r1, self.var_scale, width=3).pack(side='left', padx=(0, 16))
+
+        self._lbl(r1, 'Interval (s)', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r1, width=4, bg=self.P['mantle']).pack(side='left')
+        self._entry(r1, self.var_interval, width=3).pack(side='left', padx=(0, 16))
 
         self._lbl(r1, 'Locate', fg=self.P['subtext0'],
-                  font=('Segoe UI', 9)).pack(side='left', padx=(0, 8))
+                  font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
         self._radio(r1, 'Auto',   self.var_locate, 'auto',
-                    command=self._toggle_xy).pack(side='left')
+                    command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left')
         self._radio(r1, 'Manual', self.var_locate, 'manual',
-                    command=self._toggle_xy).pack(side='left', padx=(8, 0))
+                    command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
 
-        # Row 2: XY coords (Manual only)
+        # Row 2: XY coords + Pick
         self._xy_frame = tk.Frame(inner, bg=self.P['mantle'])
-        self._xy_frame.pack(fill='x')
+        self._xy_frame.pack(fill='x', pady=(0, 3))
 
         self._xy_entries = []
         for lbl_text, var in [('X1', self.var_x1), ('Y1', self.var_y1),
                                ('X2', self.var_x2), ('Y2', self.var_y2)]:
             pair = tk.Frame(self._xy_frame, bg=self.P['mantle'])
-            pair.pack(side='left', padx=(0, 14))
+            pair.pack(side='left', padx=(0, 6))
             self._lbl(pair, lbl_text, fg=self.P['subtext0'],
-                      font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
-            e = self._entry(pair, var, width=6)
+                      font=('Segoe UI', 7)).pack(side='left', padx=(0, 2))
+            e = self._entry(pair, var, width=5)
             e.pack(side='left')
             self._xy_entries.append(e)
 
+        tk.Button(self._xy_frame, text='+ Pick',
+                  bg=self.P['surface0'], fg=self.P['lavender'],
+                  activebackground=self.P['surface1'],
+                  activeforeground=self.P['lavender'],
+                  font=('Segoe UI', 7, 'bold'),
+                  relief='flat', bd=0, padx=5, pady=2,
+                  cursor='hand2', command=self._pick_coords
+                  ).pack(side='left', padx=(4, 0))
+
+        self._pick_overlay = None
+        self._pick_points  = []
         self._toggle_xy()
 
-    # ── Controls ──────────────────────────────────────────────────────────────
-    def _build_controls(self):
-        self._section_label('CONTROLS')
+        # Rows 3-4: START/STOP + Save/Load — unified 2×2 grid, equal sizing
+        btns = tk.Frame(inner, bg=self.P['mantle'])
+        btns.pack(fill='x', pady=(4, 0))
+        btns.columnconfigure(0, weight=1)
+        btns.columnconfigure(1, weight=1)
 
-        ctrl = tk.Frame(self, bg=self.P['base'])
-        ctrl.pack(fill='x', padx=12)
-        ctrl.columnconfigure(0, weight=1)
-        ctrl.columnconfigure(1, weight=1)
+        _BF = ('Segoe UI', 9, 'bold')   # shared font for all 4 buttons
+        _PY = 5                          # shared pady
 
-        # Primary: START / STOP
         self._btn_start = self._flat_btn(
-            ctrl, '▶   START', self.P['green'], self.P['crust'], self._start)
-        self._btn_start.grid(row=0, column=0, sticky='ew', padx=(0, 4), pady=(0, 4))
+            btns, '▶  START', self.P['green'], self.P['crust'], self._start,
+            font=_BF, pady=_PY)
+        self._btn_start.grid(row=0, column=0, sticky='ew',
+                              padx=(0, 2), pady=(0, 2))
 
         self._btn_stop = self._flat_btn(
-            ctrl, '■   STOP', self.P['surface0'], self.P['overlay0'], self._stop)
+            btns, '■  STOP', self.P['surface0'], self.P['overlay0'], self._stop,
+            font=_BF, pady=_PY)
         self._btn_stop.configure(state='disabled',
                                   activebackground=self.P['surface0'])
-        self._btn_stop.grid(row=0, column=1, sticky='ew', padx=(4, 0), pady=(0, 4))
+        self._btn_stop.grid(row=0, column=1, sticky='ew',
+                             padx=(2, 0), pady=(0, 2))
 
-        # Secondary: Save / Load
-        self._flat_btn(ctrl, 'Save Config',
-                       self.P['surface0'], self.P['subtext0'],
-                       self._save_config
-                       ).grid(row=1, column=0, sticky='ew', padx=(0, 4))
-        self._flat_btn(ctrl, 'Load Config',
-                       self.P['surface0'], self.P['subtext0'],
-                       self._load_config
-                       ).grid(row=1, column=1, sticky='ew', padx=(4, 0))
+        for col, (label, cmd) in enumerate([('Save Config', self._save_config),
+                                             ('Load Config', self._load_config)]):
+            tk.Button(btns, text=label, command=cmd,
+                      bg=self.P['surface0'], fg=self.P['subtext0'],
+                      activebackground=self.P['surface1'],
+                      activeforeground=self.P['text'],
+                      font=_BF, relief='flat', bd=0,
+                      padx=0, pady=_PY, cursor='hand2'
+                      ).grid(row=1, column=col, sticky='ew',
+                             padx=(0, 2) if col == 0 else (2, 0))
 
-    # ── Sensor card ───────────────────────────────────────────────────────────
+    # ── Data tab ──────────────────────────────────────────────────────────────
+    def _build_data_tab(self):
+        F = tk.Frame(self, bg=self.P['base'])
+        self._tab_frames['Data'] = F
+
+        _, self._lbl_mwd = self._build_sensor_card(F, 'MWD', self.P['green'])
+        self._rss_badge, self._lbl_rss = self._build_sensor_card(
+            F, 'RSS', self.P['blue'])
+
+    # ── Sensor card (compact single-row) ──────────────────────────────────────
     def _build_sensor_card(self, parent, tool_name, accent):
-        """Card with coloured 4 px left accent, badge, and 3 large metrics."""
-        # The outer frame IS the accent colour — inner frame offsets 4 px right
         outer = tk.Frame(parent, bg=accent)
-        outer.pack(fill='x', padx=12, pady=4)
+        outer.pack(fill='x', padx=6, pady=2)
 
         body = tk.Frame(outer, bg=self.P['mantle'])
-        body.pack(fill='both', expand=True, padx=(4, 0))
+        body.pack(fill='both', expand=True, padx=(3, 0))
 
-        # Badge row
-        badge_row = tk.Frame(body, bg=self.P['mantle'])
-        badge_row.pack(fill='x', padx=12, pady=(10, 6))
+        row = tk.Frame(body, bg=self.P['mantle'])
+        row.pack(fill='x', padx=8, pady=5)
 
-        badge_bg = tk.Frame(badge_row, bg=accent)
-        badge_bg.pack(side='left')
+        badge_bg = tk.Frame(row, bg=accent)
+        badge_bg.pack(side='left', padx=(0, 10))
         badge_lbl = tk.Label(badge_bg, text=tool_name,
                              bg=accent, fg=self.P['crust'],
-                             font=('Segoe UI', 9, 'bold'),
-                             padx=10, pady=3)
+                             font=('Segoe UI', 8, 'bold'), padx=7, pady=2)
         badge_lbl.pack()
-
-        # Metrics row
-        metrics = tk.Frame(body, bg=self.P['mantle'])
-        metrics.pack(fill='x', padx=12, pady=(0, 14))
 
         value_labels = []
         for i, title in enumerate(['DEPTH', 'INC', 'AZI']):
-            col = tk.Frame(metrics, bg=self.P['mantle'])
+            if i > 0:
+                tk.Frame(row, bg=self.P['surface0'],
+                         width=1).pack(side='left', fill='y', padx=5)
+            col = tk.Frame(row, bg=self.P['mantle'])
             col.pack(side='left', fill='x', expand=True)
-
             tk.Label(col, text=title,
                      bg=self.P['mantle'], fg=self.P['overlay0'],
-                     font=('Segoe UI', 8, 'bold'),
-                     anchor='center').pack(fill='x')
-
+                     font=('Segoe UI', 7, 'bold'), anchor='center').pack(fill='x')
             val = tk.Label(col, text='---',
                            bg=self.P['mantle'], fg=accent,
-                           font=('Consolas', 22, 'bold'),
-                           anchor='center')
-            val.pack(fill='x', pady=(2, 0))
+                           font=('Consolas', 14, 'bold'), anchor='center')
+            val.pack(fill='x')
             value_labels.append(val)
 
-            # Thin vertical divider (skip after last column)
-            if i < 2:
-                tk.Frame(metrics, bg=self.P['surface0'],
-                         width=1).pack(side='left', fill='y', padx=4)
-
         return badge_lbl, value_labels
-
-    # ── Data display ──────────────────────────────────────────────────────────
-    def _build_data_cards(self):
-        self._section_label('LIVE SURVEY DATA')
-
-        cards = tk.Frame(self, bg=self.P['base'])
-        cards.pack(fill='x')
-
-        _, self._lbl_mwd = self._build_sensor_card(
-            cards, 'MWD', self.P['green'])
-        self._rss_badge, self._lbl_rss = self._build_sensor_card(
-            cards, 'RSS', self.P['blue'])
 
     # ── Status bar ────────────────────────────────────────────────────────────
     def _build_statusbar(self):
         self._hsep()
-
         sb = tk.Frame(self, bg=self.P['mantle'])
         sb.pack(fill='x')
 
-        self._dot_canvas = tk.Canvas(sb, width=10, height=10,
+        self._dot_canvas = tk.Canvas(sb, width=8, height=8,
                                      bg=self.P['mantle'], highlightthickness=0)
-        self._dot_canvas.pack(side='left', padx=(14, 6), pady=9)
+        self._dot_canvas.pack(side='left', padx=(10, 5), pady=5)
         self._dot = self._dot_canvas.create_oval(
-            0, 0, 10, 10, fill=self.P['overlay0'], outline='')
+            0, 0, 8, 8, fill=self.P['overlay0'], outline='')
 
         self._status_var = tk.StringVar(value='Ready')
         tk.Label(sb, textvariable=self._status_var,
                  bg=self.P['mantle'], fg=self.P['subtext0'],
-                 font=('Segoe UI', 9), anchor='w').pack(side='left')
+                 font=('Segoe UI', 8), anchor='w').pack(side='left')
 
     # ── Log ───────────────────────────────────────────────────────────────────
     def _build_log(self):
         self._hsep()
-        self._section_label('LOG')
-
         log_outer = tk.Frame(self, bg=self.P['base'])
-        log_outer.pack(fill='both', expand=True, padx=12, pady=(0, 10))
+        log_outer.pack(fill='both', expand=True, padx=6, pady=(0, 4))
 
         self._log = scrolledtext.ScrolledText(
             log_outer, height=6, font=('Consolas', 8),
@@ -400,6 +430,99 @@ class App(tk.Tk):
         state = 'normal' if self.var_locate.get() == 'manual' else 'disabled'
         for e in self._xy_entries:
             e.configure(state=state)
+
+    # ── Coordinate picker ─────────────────────────────────────────────────────
+    def _pick_coords(self):
+        """Minimise window then open fullscreen click-to-capture overlay."""
+        self._pick_points = []
+        self.iconify()
+        self.after(300, self._pick_overlay_start)
+
+    def _pick_overlay_start(self):
+        import ctypes
+        # Cover the entire virtual desktop (multi-monitor safe)
+        vx = ctypes.windll.user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+        vy = ctypes.windll.user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+        vw = ctypes.windll.user32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+        vh = ctypes.windll.user32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
+
+        ov = tk.Toplevel(self)
+        ov.overrideredirect(True)
+        ov.geometry(f'{vw}x{vh}+{vx}+{vy}')
+        ov.attributes('-topmost', True)
+        ov.attributes('-alpha', 0.18)
+        ov.configure(bg='black', cursor='crosshair')
+        self._pick_overlay = ov
+
+        # Banner shown at top of screen
+        banner = tk.Frame(ov, bg=self.P['base'])
+        banner.pack(fill='x')
+
+        self._pick_label = tk.Label(
+            banner,
+            text='Click TOP-LEFT corner of survey data area    ESC = cancel',
+            bg=self.P['base'], fg=self.P['green'],
+            font=('Consolas', 13, 'bold'), pady=10, padx=20
+        )
+        self._pick_label.pack(side='left')
+
+        self._pick_xy_label = tk.Label(
+            banner, text='X: ---   Y: ---',
+            bg=self.P['base'], fg=self.P['blue'],
+            font=('Consolas', 13), pady=10, padx=20
+        )
+        self._pick_xy_label.pack(side='right')
+
+        ov.bind('<Motion>',   self._on_pick_motion)
+        ov.bind('<Button-1>', self._on_pick_click)
+        ov.bind('<Escape>',   lambda e: self._pick_cancel())
+        ov.focus_force()
+
+    def _on_pick_motion(self, event):
+        self._pick_xy_label.config(
+            text=f'X: {event.x_root}   Y: {event.y_root}'
+        )
+
+    def _on_pick_click(self, event):
+        self._pick_points.append((event.x_root, event.y_root))
+        if len(self._pick_points) == 1:
+            self._pick_label.config(
+                text='Click BOTTOM-RIGHT corner of survey data area    ESC = cancel',
+                fg=self.P['peach']
+            )
+        elif len(self._pick_points) == 2:
+            self._pick_finish()
+
+    def _pick_cancel(self):
+        if self._pick_overlay:
+            self._pick_overlay.destroy()
+            self._pick_overlay = None
+        self.deiconify()
+        self._log_append('Coordinate pick cancelled.\n')
+
+    def _pick_finish(self):
+        if self._pick_overlay:
+            self._pick_overlay.destroy()
+            self._pick_overlay = None
+
+        (x1, y1), (x2, y2) = self._pick_points
+        # Normalise so x1,y1 is always the smaller corner
+        x1, x2 = min(x1, x2), max(x1, x2)
+        y1, y2 = min(y1, y2), max(y1, y2)
+
+        self.var_x1.set(str(x1))
+        self.var_y1.set(str(y1))
+        self.var_x2.set(str(x2))
+        self.var_y2.set(str(y2))
+
+        # Auto-switch to Manual mode and enable entries
+        self.var_locate.set('manual')
+        self._toggle_xy()
+
+        self.deiconify()
+        self._log_append(
+            f'Coordinates captured: X1={x1} Y1={y1}  X2={x2} Y2={y2}\n'
+        )
 
     def _log_append(self, text):
         self._log.configure(state='normal')
@@ -437,6 +560,7 @@ class App(tk.Tk):
             'method':           self.var_method.get(),
             'tesseract_config': '--psm 6 --oem 1',
             'scale_factor':     self.var_scale.get(),
+            'interval':         self.var_interval.get(),
             'tool':             self.var_tool.get(),
             'locate':           self.var_locate.get(),
             'loc_x1':           self.var_x1.get(),
@@ -455,10 +579,11 @@ class App(tk.Tk):
         try:
             with open(CONFIG_FILE) as f:
                 cfg = json.load(f)
-            self.var_method.set(cfg.get('method',       'replace'))
-            self.var_scale.set( cfg.get('scale_factor', '3'))
-            self.var_tool.set(  cfg.get('tool',         'rss'))
-            self.var_locate.set(cfg.get('locate',       'auto'))
+            self.var_method.set(  cfg.get('method',       'replace'))
+            self.var_scale.set(   cfg.get('scale_factor', '3'))
+            self.var_interval.set(cfg.get('interval',     '2'))
+            self.var_tool.set(    cfg.get('tool',         'rss'))
+            self.var_locate.set(  cfg.get('locate',       'auto'))
             self.var_x1.set(    cfg.get('loc_x1',       '10'))
             self.var_y1.set(    cfg.get('loc_y1',       '10'))
             self.var_x2.set(    cfg.get('loc_x2',       '100'))
@@ -483,19 +608,16 @@ class App(tk.Tk):
             except: return default
 
         config = {
-            'method': self.var_method.get(),
-            'tool':   self.var_tool.get(),
-            'locate': self.var_locate.get(),
-            'scale':  max(1, min(10, _int(self.var_scale.get(), 3))),
-            'x1':     _int(self.var_x1.get(), 10),
-            'y1':     _int(self.var_y1.get(), 10),
-            'x2':     _int(self.var_x2.get(), 100),
-            'y2':     _int(self.var_y2.get(), 100),
+            'method':    self.var_method.get(),
+            'tool':      self.var_tool.get(),
+            'locate':    self.var_locate.get(),
+            'scale':     max(1, min(10, _int(self.var_scale.get(), 3))),
+            'interval':  max(1, min(60, _int(self.var_interval.get(), 2))),
+            'x1':        _int(self.var_x1.get(), 10),
+            'y1':        _int(self.var_y1.get(), 10),
+            'x2':        _int(self.var_x2.get(), 100),
+            'y2':        _int(self.var_y2.get(), 100),
         }
-
-        # Update RSS badge label
-        self._rss_badge.configure(
-            text='RSS' if config['tool'] == 'rss' else 'MTR')
 
         self._stop_event.clear()
         self._btn_start.configure(state='disabled',
@@ -505,6 +627,7 @@ class App(tk.Tk):
                                   bg=self.P['red'], fg=self.P['crust'],
                                   activebackground=self._lighten(self.P['red']))
         self._set_dot(self.P['yellow'])
+        self._show_tab('Data')
         self._worker = threading.Thread(target=self._worker_loop,
                                         args=(config,), daemon=True)
         self._worker.start()
@@ -550,6 +673,7 @@ class App(tk.Tk):
                         activebackground=self.P['surface0'])
                     self._status_var.set('Stopped')
                     self._set_dot(self.P['overlay0'])
+                    self._show_tab('Setup')
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)
@@ -563,6 +687,7 @@ class App(tk.Tk):
         tool      = config['tool']
         locate    = config['locate']
         scale     = config['scale']
+        interval  = config['interval']
         tess_opt  = '--psm 6 --oem 1 -c tessedit_char_whitelist=0123456789.MR'
         rss_label = 'RSS' if tool == 'rss' else 'MTR'
 
@@ -664,11 +789,16 @@ class App(tk.Tk):
 
                 mwd = (parse_survey_line(lines[0], 'M')
                        if len(lines) > 0 else ['0.00', '0.00', '0.00'])
-                rss = (parse_survey_line(lines[1], 'R')
-                       if len(lines) > 1 else ['0.00', '0.00', '0.00'])
+                # Only parse RSS row when tool is RSS; motor has only one data row
+                if tool == 'rss':
+                    rss = (parse_survey_line(lines[1], 'R')
+                           if len(lines) > 1 else ['0.00', '0.00', '0.00'])
+                else:
+                    rss = ['0.00', '0.00', '0.00']
 
                 mwd = data_check(mwd)
-                rss = data_check(rss)
+                if tool == 'rss':
+                    rss = data_check(rss)
 
                 # Last-known-good
                 def resolve(lst, last):
@@ -681,9 +811,13 @@ class App(tk.Tk):
                         return last[:], False
 
                 mwd_out, mwd_ok = resolve(mwd, last_mwd)
-                rss_out, rss_ok = resolve(rss, last_rss)
                 if mwd_ok: last_mwd = mwd_out[:]
-                if rss_ok: last_rss = rss_out[:]
+
+                if tool == 'rss':
+                    rss_out, rss_ok = resolve(rss, last_rss)
+                    if rss_ok: last_rss = rss_out[:]
+                else:
+                    rss_out = ['--', '--', '--']
 
                 # Write CSV
                 for _ in range(10):
@@ -691,7 +825,8 @@ class App(tk.Tk):
                         with open('output.csv', 'w', newline='') as f:
                             wr = csv.writer(f)
                             wr.writerow(mwd_out)
-                            wr.writerow(rss_out)
+                            if tool == 'rss':
+                                wr.writerow(rss_out)
                         break
                     except Exception:
                         time.sleep(0.1)
@@ -701,9 +836,12 @@ class App(tk.Tk):
                 mwd_str = ' / '.join(fmt_val(v) for v in mwd_out)
                 rss_str = ' / '.join(fmt_val(v) for v in rss_out)
                 self._q('data', mwd_out, rss_out)
-                self._q('status', f'Last update: {ts}  |  interval: {INTERVAL}s')
-                self._q('log',
-                        f'[{ts}]  MWD {mwd_str}   {rss_label} {rss_str}\n')
+                self._q('status', f'Last update: {ts}  |  interval: {interval}s')
+                if tool == 'rss':
+                    self._q('log',
+                            f'[{ts}]\nMWD {mwd_str}\n{rss_label} {rss_str}\n')
+                else:
+                    self._q('log', f'[{ts}]\nMWD {mwd_str}\n')
 
             except Exception as e:
                 ts = time.strftime('%H:%M:%S')
@@ -711,7 +849,7 @@ class App(tk.Tk):
                 self._q('status', 'Error — retrying...')
 
             # Responsive wait
-            for _ in range(INTERVAL * 10):
+            for _ in range(interval * 10):
                 if self._stop_event.is_set():
                     break
                 time.sleep(0.1)

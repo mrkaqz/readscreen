@@ -17,6 +17,13 @@ main-auto.exe
 main-gui.exe
 create-config.exe
 
+# PyInstaller
+*.spec
+build/
+
+# Release zips
+*.zip
+
 # Distribution folders
 dist-exe/
 dist-gui/

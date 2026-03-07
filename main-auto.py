@@ -458,11 +458,16 @@ try:
 
         # --- parse using delimiter with positional fallback ---
         mwd_list = parse_survey_line(list_text[0], 'M') if len(list_text) > 0 else ['0.00', '0.00', '0.00']
-        rss_list = parse_survey_line(list_text[1], 'R') if len(list_text) > 1 else ['0.00', '0.00', '0.00']
+        # Only parse RSS row when tool is RSS; motor has only one data row
+        if tool_run == 'rss':
+            rss_list = parse_survey_line(list_text[1], 'R') if len(list_text) > 1 else ['0.00', '0.00', '0.00']
+        else:
+            rss_list = ['0.00', '0.00', '0.00']
 
         #perform data check
         mwd_list = data_check(mwd_list)
-        rss_list = data_check(rss_list)
+        if tool_run == 'rss':
+            rss_list = data_check(rss_list)
 
         #if data is not make sense, them give error into list
         if mwd_list[0] == '9.99':
@@ -485,26 +490,28 @@ try:
                 mwd_out = ['Not','a','Number']
                 mwd_list = last_mwd_list.copy()
 
-
-        if rss_list[0] == '9.99':
-            rss_out = ['Out','Of','Range']
-            rss_list = last_rss_list.copy()
-        elif rss_list[0] == '':
-            rss_out = ['No','Data','Found']
-            rss_list = last_rss_list.copy()
-        elif rss_list[0] == '0.00':
-            rss_out = ['Reading','Error','!!']
-            rss_list = last_rss_list.copy()
-        else:
-            try:
-                float(rss_list[0])
-                float(rss_list[1])
-                float(rss_list[2])
-                rss_out = rss_list
-                last_rss_list = rss_list.copy()   # save as last known good
-            except:
-                rss_out = ['Not','a','Number']
+        if tool_run == 'rss':
+            if rss_list[0] == '9.99':
+                rss_out = ['Out','Of','Range']
                 rss_list = last_rss_list.copy()
+            elif rss_list[0] == '':
+                rss_out = ['No','Data','Found']
+                rss_list = last_rss_list.copy()
+            elif rss_list[0] == '0.00':
+                rss_out = ['Reading','Error','!!']
+                rss_list = last_rss_list.copy()
+            else:
+                try:
+                    float(rss_list[0])
+                    float(rss_list[1])
+                    float(rss_list[2])
+                    rss_out = rss_list
+                    last_rss_list = rss_list.copy()   # save as last known good
+                except:
+                    rss_out = ['Not','a','Number']
+                    rss_list = last_rss_list.copy()
+        else:
+            rss_out = ['N/A', 'N/A', 'N/A']
 
 
         #create rich table
@@ -529,7 +536,8 @@ try:
                 with open('output.csv', mode='w', newline='') as output_file:
                     output_writer = csv.writer(output_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                     output_writer.writerow(mwd_list)
-                    output_writer.writerow(rss_list)
+                    if tool_run == 'rss':
+                        output_writer.writerow(rss_list)
             except:
                 print('Output to file error -- Retrying...')
                 continue
