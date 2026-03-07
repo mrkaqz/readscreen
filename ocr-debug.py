@@ -1,5 +1,5 @@
 """
-ocr-debug.py — run OCR on screenshot.png using all 3 preprocessing methods.
+ocr-debug.py — run OCR on screenshot.png across scale 1-10 × 3 methods.
 
 Usage:
     python ocr-debug.py [image_path]   (default: screenshot.png)
@@ -29,7 +29,16 @@ _sharpen = np.array([[-1, -1, -1],
                      [-1,  9, -1],
                      [-1, -1, -1]])
 
-SEP = '-' * 48
+SEP  = '=' * 56
+SEP2 = '-' * 48
+
+# ── Resize ────────────────────────────────────────────────────────────────
+def scale_img(cv_img, factor):
+    if factor == 1:
+        return cv_img
+    h, w = cv_img.shape[:2]
+    return cv2.resize(cv_img, (w * factor, h * factor),
+                      interpolation=cv2.INTER_CUBIC)
 
 # ── Preprocessing ─────────────────────────────────────────────────────────
 def preprocess(cv_img, method):
@@ -89,19 +98,25 @@ if cv_img is None:
     sys.exit(1)
 
 print(f'Image : {image_path}  ({cv_img.shape[1]}x{cv_img.shape[0]})')
-print(SEP)
 
-for method in ('replace', 'threshold', 'original'):
-    pil  = preprocess(cv_img, method)
-    raw  = tess.image_to_string(pil, config=TESS_OPT)
-    mwd, rss = parse_ocr(raw)
+METHODS = ('replace', 'threshold', 'original')
 
-    pil.save(f'debug_{method}.png')
-
-    print(f'[{method}]')
-    print(f'  raw : {raw.replace(chr(10), " ").strip()!r}')
-    print(f'  MWD : {mwd}')
-    print(f'  RSS : {rss}')
+for scale in range(1, 11):
     print(SEP)
+    print(f'  SCALE x{scale}')
+    print(SEP)
+    scaled = scale_img(cv_img, scale)
+    for method in METHODS:
+        pil      = preprocess(scaled, method)
+        raw      = tess.image_to_string(pil, config=TESS_OPT)
+        mwd, rss = parse_ocr(raw)
 
-print('Saved: debug_replace.png  debug_threshold.png  debug_original.png')
+        pil.save(f'debug_s{scale}_{method}.png')
+
+        print(f'  [{method}]')
+        print(f'    raw : {raw.replace(chr(10), " ").strip()!r}')
+        print(f'    MWD : {mwd}')
+        print(f'    RSS : {rss}')
+        print(SEP2)
+
+print('\nDone. Saved debug_s1_*.png … debug_s10_*.png (30 files)')
