@@ -25,7 +25,7 @@ else:
     tess.pytesseract.tesseract_cmd = _system_tess
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-VERSION     = '1.4.2 GUI'
+VERSION     = '1.4.4 GUI'
 DATE        = '10-Mar-26'
 CONFIG_FILE = 'tess_config.json'
 INTERVAL    = 2
@@ -747,8 +747,8 @@ class App(tk.Tk):
                         crop = (w - round(w*0.545), round(h*0.920),
                                 w - round(w*0.22),  round(h*0.999))
                     else:
-                        # MD/INC/AZI cols only: x=40-76%, y=94.8-99.9%
-                        crop = (w - round(w*0.60),  round(h*0.948),
+                        # MD/INC/AZI cols only: x=40-76%, y=94.9-99.9%
+                        crop = (w - round(w*0.60),  round(h*0.949),
                                 w - round(w*0.24),  round(h*0.999))
                     img = img.crop(crop)
 
@@ -763,27 +763,34 @@ class App(tk.Tk):
                 cv_img = cv2.filter2D(cv_img, -1, _sharpen_kernel)
 
                 if method == 'replace':
-                    hsv  = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
-                    mask = cv2.inRange(hsv,
-                                       np.array([30,  80,  80]),
-                                       np.array([100, 255, 255]))
-                    out  = np.full_like(cv_img, 255)
+                    hsv    = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+                    avg_v  = float(np.mean(hsv[:, :, 2]))
+                    mask   = cv2.inRange(hsv,
+                                        np.array([30,  80,  80]),
+                                        np.array([100, 255, 255]))
+                    out    = np.full_like(cv_img, 255)
                     out[mask > 0] = 0
-                    out  = cv2.copyMakeBorder(out, 20, 20, 20, 20,
-                                              cv2.BORDER_CONSTANT, value=[255, 255, 255])
-                    pil  = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+                    if avg_v > 150:
+                        # Motor: bright green bg → invert → black text on white bg
+                        out = cv2.bitwise_not(out)
+                    out    = cv2.copyMakeBorder(out, 20, 20, 20, 20,
+                                                cv2.BORDER_CONSTANT, value=[255, 255, 255])
+                    pil    = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
 
                 elif method == 'threshold':
-                    cv_img = cv2.bilateralFilter(cv_img, 5, 75, 75)
-                    gry    = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-                    thr    = cv2.threshold(gry, 0, 255,
-                                           cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-                    thr    = cv2.morphologyEx(
+                    cv_img  = cv2.bilateralFilter(cv_img, 5, 75, 75)
+                    gry     = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+                    hsv_t   = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+                    avg_v_t = float(np.mean(hsv_t[:, :, 2]))
+                    t_type  = (cv2.THRESH_BINARY if avg_v_t > 150
+                               else cv2.THRESH_BINARY_INV) + cv2.THRESH_OTSU
+                    thr     = cv2.threshold(gry, 0, 255, t_type)[1]
+                    thr     = cv2.morphologyEx(
                         thr, cv2.MORPH_OPEN,
                         cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2)))
-                    thr    = cv2.copyMakeBorder(thr, 20, 20, 20, 20,
-                                                cv2.BORDER_CONSTANT, value=255)
-                    pil    = Image.fromarray(thr)
+                    thr     = cv2.copyMakeBorder(thr, 20, 20, 20, 20,
+                                                 cv2.BORDER_CONSTANT, value=255)
+                    pil     = Image.fromarray(thr)
 
                 else:
                     cv_img = cv2.copyMakeBorder(cv_img, 20, 20, 20, 20,

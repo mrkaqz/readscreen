@@ -146,7 +146,7 @@ def parse_survey_line(raw_text, delimiter):
 
 #declear version
 print('[bold purple4]Maxwell Read Screen Utility for Real Time Survey Calculation[/bold purple4]')
-print('[bold purple4]Version: 1.4.2 Date: 10-Mar-26[/bold purple4]\n')
+print('[bold purple4]Version: 1.4.4 Date: 10-Mar-26[/bold purple4]\n')
 print('[blue]This Python script based on Tesseract-OCR open source[/blue]')
 print('[blue]Copyright (c) 2021 under Apache License, version 2.0[/blue]')
 print('[blue]Develop by Ronnarong Wongmalasit (rwongmalasit@slb.com)[/blue]\n')
@@ -366,9 +366,9 @@ try:
                 right = width - round(width*0.22)
                 bottom = round(height*0.999)
             elif tool_run == "motor":
-                # MD/INC/AZI cols only: x=40-76%, y=94.8-99.9%
+                # MD/INC/AZI cols only: x=40-76%, y=94.9-99.9%
                 left = width - round(width*0.60)
-                top = round(height*0.948)
+                top = round(height*0.949)
                 right = width - round(width*0.24)
                 bottom = round(height*0.999)
 
@@ -393,22 +393,26 @@ try:
                 cv2.imwrite('screenshot_resize.png', img)
 
                 # --- replace method: HSV colour-space mask (robust to brightness changes) ---
-                # The original R-channel check was fragile; HSV separates hue from brightness
-                # so the green text is detected reliably even if display brightness varies.
+                # Auto-detects display type via average V channel:
+                #   avg_v > 150 → Motor/TeleScope (bright green bg, black text)
+                #   avg_v ≤ 150 → RSS (dark bg, bright green text)
                 if method == 'replace':
 
                     img_bgr = cv2.imread('screenshot_resize.png')
                     if img_bgr is None:
                         raise FileNotFoundError('cv2 could not read screenshot_resize.png')
                     img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-                    # Yellow-green / lime hue (OpenCV H: 0-179): covers chartreuse through
-                    # pure green with high saturation and brightness.
+                    avg_v = float(np.mean(img_hsv[:, :, 2]))
                     lower_green = np.array([30,  80,  80])
                     upper_green = np.array([100, 255, 255])
                     mask = cv2.inRange(img_hsv, lower_green, upper_green)
-                    # Black text on white background (Tesseract's preferred format)
+                    # Start with white canvas; green pixels → black
                     result = np.full_like(img_bgr, 255)
                     result[mask > 0] = 0
+                    if avg_v > 150:
+                        # Motor: bright green bg → was set to black, black text → was white.
+                        # Invert so bg becomes white and text becomes black (Tesseract-preferred).
+                        result = cv2.bitwise_not(result)
                     # Add white border — Tesseract reads better with surrounding whitespace
                     result = cv2.copyMakeBorder(result, 20, 20, 20, 20,
                                                 cv2.BORDER_CONSTANT, value=[255, 255, 255])
@@ -418,6 +422,9 @@ try:
                     text = tess.image_to_string(pil_img, config=tess_option)
 
                 # --- threshold method: denoise → Otsu → morphological cleanup ---
+                # Auto-detects threshold direction via average V channel:
+                #   avg_v > 150 → Motor (bright bg): BINARY → black text on white bg
+                #   avg_v ≤ 150 → RSS (dark bg): BINARY_INV → black text on white bg
                 elif method == 'threshold':
 
                     img_bgr = cv2.imread('screenshot_resize.png')
@@ -426,8 +433,11 @@ try:
                     # Bilateral filter denoises while preserving character edges
                     img_bgr = cv2.bilateralFilter(img_bgr, 5, 75, 75)
                     gry = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-                    thr = cv2.threshold(gry, 0, 255,
-                                        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+                    img_hsv_t = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+                    avg_v_t = float(np.mean(img_hsv_t[:, :, 2]))
+                    thresh_type = (cv2.THRESH_BINARY if avg_v_t > 150
+                                   else cv2.THRESH_BINARY_INV) + cv2.THRESH_OTSU
+                    thr = cv2.threshold(gry, 0, 255, thresh_type)[1]
                     # Morphological opening removes isolated noise pixels without
                     # eroding the character strokes
                     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
