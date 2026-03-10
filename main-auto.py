@@ -136,7 +136,7 @@ def parse_survey_line(raw_text, delimiter):
 
 #declear version
 print('[bold purple4]Maxwell Read Screen Utility for Real Time Survey Calculation[/bold purple4]')
-print('[bold purple4]Version: 1.4 Date: 28-Feb-26[/bold purple4]\n')
+print('[bold purple4]Version: 1.4.1 Date: 10-Mar-26[/bold purple4]\n')
 print('[blue]This Python script based on Tesseract-OCR open source[/blue]')
 print('[blue]Copyright (c) 2021 under Apache License, version 2.0[/blue]')
 print('[blue]Develop by Ronnarong Wongmalasit (rwongmalasit@slb.com)[/blue]\n')
@@ -350,16 +350,16 @@ try:
 
             #crop screenshot based on tool selected
             if tool_run == "rss":
-                #crop image to width 54.5-78%, height 7.5% for RSS
+                # MD/INC/AZI cols only: x=45.5-71%, y=90.5-99.5%
                 left = width - round(width*0.545)
-                top = round(height*0.925)
-                right = width - round(width*0.225)
+                top = round(height*0.905)
+                right = width - round(width*0.29)
                 bottom = round(height*0.995)
             elif tool_run == "motor":
-                #crop image to width 54.5-78%, height 7.5% for motor
+                # MD/INC/AZI cols only: x=40-70%, y=92.5-99.5%
                 left = width - round(width*0.60)
-                top = round(height*0.956)
-                right = width - round(width*0.24)
+                top = round(height*0.925)
+                right = width - round(width*0.30)
                 bottom = round(height*0.995)
 
             #crop image

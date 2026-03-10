@@ -25,8 +25,8 @@ else:
     tess.pytesseract.tesseract_cmd = _system_tess
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-VERSION     = '1.4 GUI'
-DATE        = '28-Feb-26'
+VERSION     = '1.4.1 GUI'
+DATE        = '10-Mar-26'
 CONFIG_FILE = 'tess_config.json'
 INTERVAL    = 2
 
@@ -736,11 +736,13 @@ class App(tk.Tk):
                         (b[0]+7, b[1], b[2]-7, b[3]-7), all_screens=True)
                     w, h = img.size
                     if tool == 'rss':
-                        crop = (w - round(w*0.545), round(h*0.925),
-                                w - round(w*0.225), round(h*0.995))
+                        # MD/INC/AZI cols only: x=45.5-71%, y=90.5-99.5%
+                        crop = (w - round(w*0.545), round(h*0.905),
+                                w - round(w*0.29),  round(h*0.995))
                     else:
-                        crop = (w - round(w*0.60),  round(h*0.956),
-                                w - round(w*0.24),  round(h*0.995))
+                        # MD/INC/AZI cols only: x=40-70%, y=92.5-99.5%
+                        crop = (w - round(w*0.60),  round(h*0.925),
+                                w - round(w*0.30),  round(h*0.995))
                     img = img.crop(crop)
 
                 img.save('screenshot.png')
