@@ -124,10 +124,20 @@ def data_check(data_list):
 
 def parse_survey_line(raw_text, delimiter):
     """Parse [depth, inc, azi] using delimiter; falls back to positional decimal
-    extraction if the delimiter was misread or dropped by OCR."""
+    extraction if the delimiter was misread or dropped by OCR.
+
+    When the crop is slightly wide and OCR picks up the TVD column, the depth
+    part may look like "229.55954.12" (depth concatenated with TVD).  We extract
+    only the first number with 1-2 decimal places from each split segment so
+    that the extra trailing digits are silently discarded.
+    """
     parts = raw_text.split(delimiter)
     if len(parts) == 3:
-        return parts
+        cleaned = []
+        for p in parts:
+            m = re.match(r'(\d+\.\d{1,2})', p.lstrip())
+            cleaned.append(m.group(1) if m else p.strip())
+        return cleaned
     # Fallback: find all decimal numbers in order
     numbers = re.findall(r'\d+\.\d+', raw_text)
     if len(numbers) >= 3:
@@ -136,7 +146,7 @@ def parse_survey_line(raw_text, delimiter):
 
 #declear version
 print('[bold purple4]Maxwell Read Screen Utility for Real Time Survey Calculation[/bold purple4]')
-print('[bold purple4]Version: 1.4.1 Date: 10-Mar-26[/bold purple4]\n')
+print('[bold purple4]Version: 1.4.2 Date: 10-Mar-26[/bold purple4]\n')
 print('[blue]This Python script based on Tesseract-OCR open source[/blue]')
 print('[blue]Copyright (c) 2021 under Apache License, version 2.0[/blue]')
 print('[blue]Develop by Ronnarong Wongmalasit (rwongmalasit@slb.com)[/blue]\n')
@@ -350,17 +360,17 @@ try:
 
             #crop screenshot based on tool selected
             if tool_run == "rss":
-                # MD/INC/AZI cols only: x=45.5-71%, y=90.5-99.5%
+                # MD/INC/AZI cols only: x=45.5-78%, y=92.0-99.9%
                 left = width - round(width*0.545)
-                top = round(height*0.905)
-                right = width - round(width*0.29)
-                bottom = round(height*0.995)
+                top = round(height*0.920)
+                right = width - round(width*0.22)
+                bottom = round(height*0.999)
             elif tool_run == "motor":
-                # MD/INC/AZI cols only: x=40-70%, y=92.5-99.5%
+                # MD/INC/AZI cols only: x=40-76%, y=94.8-99.9%
                 left = width - round(width*0.60)
-                top = round(height*0.925)
-                right = width - round(width*0.30)
-                bottom = round(height*0.995)
+                top = round(height*0.948)
+                right = width - round(width*0.24)
+                bottom = round(height*0.999)
 
             #crop image
             img_crop = img.crop((left,top,right,bottom))

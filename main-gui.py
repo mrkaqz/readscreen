@@ -25,7 +25,7 @@ else:
     tess.pytesseract.tesseract_cmd = _system_tess
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-VERSION     = '1.4.1 GUI'
+VERSION     = '1.4.2 GUI'
 DATE        = '10-Mar-26'
 CONFIG_FILE = 'tess_config.json'
 INTERVAL    = 2
@@ -49,9 +49,16 @@ def data_check(data_list):
 
 
 def parse_survey_line(raw_text, delimiter):
+    """Parse [depth, inc, azi] using delimiter; falls back to positional decimal
+    extraction.  Extracts only the first 1-2 decimal place number from each
+    split segment to guard against TVD column concatenation."""
     parts = raw_text.split(delimiter)
     if len(parts) == 3:
-        return parts
+        cleaned = []
+        for p in parts:
+            m = re.match(r'(\d+\.\d{1,2})', p.lstrip())
+            cleaned.append(m.group(1) if m else p.strip())
+        return cleaned
     numbers = re.findall(r'\d+\.\d+', raw_text)
     if len(numbers) >= 3:
         return numbers[:3]
@@ -736,13 +743,13 @@ class App(tk.Tk):
                         (b[0]+7, b[1], b[2]-7, b[3]-7), all_screens=True)
                     w, h = img.size
                     if tool == 'rss':
-                        # MD/INC/AZI cols only: x=45.5-71%, y=90.5-99.5%
-                        crop = (w - round(w*0.545), round(h*0.905),
-                                w - round(w*0.29),  round(h*0.995))
+                        # MD/INC/AZI cols only: x=45.5-78%, y=92.0-99.9%
+                        crop = (w - round(w*0.545), round(h*0.920),
+                                w - round(w*0.22),  round(h*0.999))
                     else:
-                        # MD/INC/AZI cols only: x=40-70%, y=92.5-99.5%
-                        crop = (w - round(w*0.60),  round(h*0.925),
-                                w - round(w*0.30),  round(h*0.995))
+                        # MD/INC/AZI cols only: x=40-76%, y=94.8-99.9%
+                        crop = (w - round(w*0.60),  round(h*0.948),
+                                w - round(w*0.24),  round(h*0.999))
                     img = img.crop(crop)
 
                 img.save('screenshot.png')
