@@ -2,7 +2,7 @@
 
 **ReadScreen** is a Windows utility that reads real-time directional drilling survey data — **Depth**, **Inclination (INC)**, and **Azimuth (AZI)** — directly from the *Rig Floor Console* application screen using Tesseract OCR, then outputs the parsed values to `output.csv` for live survey calculations.
 
-It comes in two flavours: a **CLI version** (`main-auto.py`) with a rich terminal UI and a **GUI version** (`main-gui.py`) with a compact dark-themed tabbed interface.
+It comes in two flavours: a **CLI version** (`main-cli.py`) with a rich terminal UI and a **GUI version** (`main-gui.py`) with a compact dark-themed tabbed interface.
 
 ---
 
@@ -14,6 +14,8 @@ It comes in two flavours: a **CLI version** (`main-auto.py`) with a rich termina
 - Three OCR preprocessing methods: `replace` (green-on-dark display), `threshold` (Otsu), `original`
 - **Motor** and **RSS** tool types with automatic crop ratios
 - Configurable scale factor (1–10×) and capture interval (1–60 s)
+- **DPI-aware**: manual XY coordinates work correctly at any Windows display scale (100%, 125%, 150%, etc.)
+- **Enhanced validation**: DEPTH 0–100,000 · INC 0–100 · AZI 0–360; out-of-range shows `OOR`, unreadable shows `NaN`; CSV always writes `0.00` on any error
 - Outputs to `output.csv` at the set interval — plug directly into the companion Excel sheet
 - Bundled local Tesseract — **no system-wide install required**
 - Ships as a folder-based `.exe` (PyInstaller) — compatible with **Windows 10 and 11**
@@ -25,15 +27,17 @@ It comes in two flavours: a **CLI version** (`main-auto.py`) with a rich termina
 > No Python install required on the target machine.
 
 1. Download and extract the latest release from [Releases](https://github.com/mrkaqz/readscreen/releases)
+   - `ReadScreen-v1.5.0-gui.zip` — GUI version (recommended)
+   - `ReadScreen-v1.5.0-auto.zip` — CLI/terminal version
 2. Ensure the folder structure is intact:
    ```
-   readscreen-gui-v1.4/
+   main-gui/
    ├── main-gui.exe        # GUI version
    ├── _internal/          # Python runtime (do not move)
    ├── tess_config.json    # OCR configuration
    └── tesseract/          # Local Tesseract engine
    ```
-3. Run `main-gui.exe` for the GUI, or `main-auto.exe` for the terminal version
+3. Run `main-gui.exe` for the GUI, or `main-cli.exe` for the terminal version
 4. If the app fails to start, install [Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 
 ---
@@ -57,7 +61,7 @@ The GUI is split into two tabs:
 
 **Data tab** — shown automatically when running:
 - Live **MWD** card (green) and **RSS** card (blue) showing Depth / INC / AZI
-- Values flash white on each update
+- Values flash white on each update; `OOR` / `NaN` shown in red for invalid readings
 - Switches back to Setup tab automatically on STOP
 
 **Status bar + Log** — always visible at the bottom of both tabs.
@@ -111,7 +115,7 @@ venv\Scripts\activate
 python main-gui.py
 
 # CLI version
-python main-auto.py
+python main-cli.py
 
 # Debug OCR — tests all 3 preprocessing methods side-by-side
 python ocr-debug.py
@@ -190,13 +194,13 @@ venv\Scripts\activate
 pip install pyinstaller
 
 # Build GUI version (no console window)
-pyinstaller --onedir --noconsole --icon=icon.ico --name main-gui --distpath dist-gui main-gui.py
+python -m PyInstaller --onedir --name main-gui --distpath dist_gui --icon icon.ico --noconsole --noconfirm main-gui.py
 
 # Build CLI version (with console)
-pyinstaller --onedir --icon=icon.ico --name main-auto --distpath dist-exe main-auto.py
+python -m PyInstaller --onedir --name main-cli --distpath dist_auto --icon icon.ico --noconfirm main-cli.py
 ```
 
-Copy `tess_config.json` and the `tesseract/` folder into the output folder (`dist-gui/main-gui/` or `dist-exe/main-auto/`) before distributing.
+Copy `tess_config.json` and the `tesseract/` folder into the output folder (`dist_gui/main-gui/` or `dist_auto/main-cli/`) before distributing.
 
 > **Note:** PyInstaller produces a folder-based distribution (`--onedir`), which is compatible with both Windows 10 and 11. The output folder contains the `.exe` and an `_internal/` directory — keep them together.
 
@@ -206,8 +210,8 @@ Copy `tess_config.json` and the `tesseract/` folder into the output folder (`dis
 
 ```
 readscreen/
-├── main-auto.py              # CLI version (v1.4) — production
-├── main-gui.py               # GUI version — compact tabbed tkinter app
+├── main-cli.py              # CLI version (v1.5.0) — production
+├── main-gui.py               # GUI version (v1.5.0) — compact tabbed tkinter app
 ├── main.py                   # Legacy CLI (v0.3.1, uses mss + config.json)
 ├── main-replace.py           # Replace-method only variant
 ├── main-threshold.py         # Threshold-method only variant

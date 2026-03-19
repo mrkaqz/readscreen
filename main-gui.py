@@ -25,7 +25,7 @@ from PIL import Image, ImageGrab
 import pytesseract as tess
 import win32gui
 
-# ── Tesseract auto-detection (mirrors main-auto.py) ───────────────────────────
+# ── Tesseract auto-detection (mirrors main-cli.py) ───────────────────────────
 _script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
 _local_tess  = os.path.join(_script_dir, 'tesseract', 'tesseract.exe')
 _system_tess = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -45,7 +45,7 @@ _sharpen_kernel = np.array([[-1, -1, -1],
                              [-1,  9, -1],
                              [-1, -1, -1]])
 
-# ── Pure helpers (identical logic to main-auto.py) ────────────────────────────
+# ── Pure helpers (identical logic to main-cli.py) ────────────────────────────
 def data_check(data_list):
     for c in range(len(data_list)):
         d = data_list[c]
@@ -777,7 +777,7 @@ class App(tk.Tk):
 
                 img.save('screenshot.png')
 
-                # Preprocess (same as main-auto.py)
+                # Preprocess (same as main-cli.py)
                 cv_img = cv2.imread('screenshot.png')
                 if cv_img is None:
                     raise FileNotFoundError('Cannot read screenshot.png')

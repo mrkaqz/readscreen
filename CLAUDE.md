@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 source venv/Scripts/activate  # or venv\Scripts\activate on Windows cmd
 
 # Run the main (latest) production script
-python main-auto.py
+python main-cli.py
 
 # Run earlier version (uses config.json instead of tess_config.json)
 python main.py
@@ -28,13 +28,51 @@ python create-config.py
 python winname.py
 ```
 
-## Building Executables (Nuitka)
+## Building Executables (PyInstaller)
+
+Use **PyInstaller 6.x** (not Nuitka — Nuitka 4.x is incompatible with Python 3.13).
 
 ```bash
-python -m nuitka --onefile --windows-icon-from-ico=icon.ico --zig --follow-imports main-auto.py
+# Activate venv first
+source venv/Scripts/activate
+
+# CLI version (with console window)
+python -m PyInstaller --onedir --name main-cli --distpath dist_auto --icon icon.ico --noconfirm main-cli.py
+
+# GUI version (no console window)
+python -m PyInstaller --onedir --name main-gui --distpath dist_gui --icon icon.ico --noconsole --noconfirm main-gui.py
 ```
 
-Output is a single `main-auto.exe` in the current directory. Place `tesseract/` folder and `tess_config.json` alongside the `.exe` before distributing.
+After building, copy runtime assets into the dist folder:
+
+```bash
+cp tess_config.json dist_auto/main-cli/
+cp -r tesseract  dist_auto/main-cli/
+
+cp tess_config.json dist_gui/main-gui/
+cp -r tesseract  dist_gui/main-gui/
+```
+
+Output structure (PyInstaller 6.x):
+```
+dist_auto/main-cli/
+    main-cli.exe
+    _internal/       ← all Python/DLL dependencies
+    tess_config.json
+    tesseract/
+
+dist_gui/main-gui/
+    main-gui.exe
+    _internal/
+    tess_config.json
+    tesseract/
+```
+
+Package for release:
+```bash
+powershell -Command "Compress-Archive -Path 'dist_auto/main-cli/*' -DestinationPath 'ReadScreen-vX.X.X-auto.zip' -Force"
+powershell -Command "Compress-Archive -Path 'dist_gui/main-gui/*'  -DestinationPath 'ReadScreen-vX.X.X-gui.zip'  -Force"
+```
 
 ## Prerequisites
 
@@ -43,7 +81,7 @@ Output is a single `main-auto.exe` in the current directory. Place `tesseract/` 
 
 ## Architecture
 
-### Main Data Flow (`main-auto.py`)
+### Main Data Flow (`main-cli.py`)
 1. **Locate window**: Either auto-find "Rig Floor Console -" window title via `win32gui`, or use manual XY coords from `tess_config.json`
 2. **Capture screenshot**: `ImageGrab.grab()` with `all_screens=True`
 3. **Crop**: Proportional crop based on tool type (RSS vs Motor) using fixed percentage ratios of window dimensions
@@ -59,13 +97,13 @@ Output is a single `main-auto.exe` in the current directory. Place `tesseract/` 
 10. **Loop**: 2-second progress bar delay between captures
 
 ### Configuration Files
-- **`tess_config.json`** — Used by `main-auto.py`: `method`, `tesseract_config`, `loc_x1/y1/x2/y2`
+- **`tess_config.json`** — Used by `main-cli.py`: `method`, `tesseract_config`, `loc_x1/y1/x2/y2`
 - **`config.json`** — Used by older `main.py`: same coordinates plus `monitor` (monitor index for `mss`) and `scale_factor`
 
 ### Script Variants
 | Script | Purpose |
 |--------|---------|
-| `main-auto.py` | Current production version (v1.3.2); rich UI, auto window detection |
+| `main-cli.py` | Current production version (v1.5.0); rich UI, auto window detection |
 | `main.py` | Older version (v0.3.1); uses `mss` for capture, simpler text output |
 | `main-gui.py` | GUI version |
 | `main-replace.py` | Replace-method only variant |
@@ -78,6 +116,6 @@ Output is a single `main-auto.exe` in the current directory. Place `tesseract/` 
 ## Key Constraints
 
 - **Windows-only**: Uses `win32gui`, `ctypes.windll`, `ImageGrab(all_screens=True)`, `msvcrt`
-- **Tesseract auto-detection**: `main-auto.py` prefers a local `./tesseract/tesseract.exe` (set up via `setup_tesseract.py`) and falls back to `C:\Program Files\Tesseract-OCR\tesseract.exe`. Path resolved via `sys.argv[0]` so it works in both script and Nuitka-compiled exe.
+- **Tesseract auto-detection**: `main-cli.py` prefers a local `./tesseract/tesseract.exe` (set up via `setup_tesseract.py`) and falls back to `C:\Program Files\Tesseract-OCR\tesseract.exe`. Path resolved via `sys.argv[0]` so it works in both script and PyInstaller-compiled exe.
 - The parsed text relies on `M` and `R` suffix characters in the OCR output as delimiters; the display format of the source application is assumed fixed
 - `output.csv` is overwritten each loop iteration (not appended)

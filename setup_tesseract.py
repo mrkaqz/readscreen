@@ -2,10 +2,10 @@
 setup_tesseract.py
 ------------------
 Extracts the bundled Tesseract-OCR installer into a local ./tesseract/ folder
-so that main-auto.py can run without a system-wide Tesseract installation.
+so that main-cli.py can run without a system-wide Tesseract installation.
 
-Run this script ONCE before using main-auto.py for the first time.
-After setup, main-auto.py will automatically detect and use the local copy.
+Run this script ONCE before using main-cli.py for the first time.
+After setup, main-cli.py will automatically detect and use the local copy.
 
 Strategy: use 7-Zip to extract the NSIS installer directly — no UAC needed,
 no registry writes, and works even when the script path contains spaces.
@@ -149,5 +149,5 @@ except Exception as e:
     sys.exit(1)
 
 print('\n[bold green]Setup complete![/bold green]')
-print('You can now run [cyan]main-auto.py[/cyan] without a system-wide Tesseract installation.')
+print('You can now run [cyan]main-cli.py[/cyan] without a system-wide Tesseract installation.')
 input('\nPress Enter to exit...')
