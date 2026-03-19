@@ -2,6 +2,13 @@ from ctypes import windll, Structure, c_long, byref
 import time
 import sys, os
 
+# Enable DPI awareness so GetCursorPos returns physical pixels, matching
+# what ImageGrab.grab() expects when reading the screen.
+try:
+    windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    pass
+
 class POINT(Structure):
     _fields_ = [("x", c_long), ("y", c_long)]
 

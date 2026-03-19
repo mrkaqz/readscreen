@@ -1,5 +1,16 @@
 import os
 import sys
+
+# Must be called before tkinter creates any window.
+# Without this, Windows returns DPI-virtualised (logical) coords from all APIs
+# while ImageGrab.grab() always works in physical pixels — wrong capture region
+# at display scales other than 100%.
+import ctypes
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    pass
+
 import re
 import cv2
 import json
@@ -25,8 +36,8 @@ else:
     tess.pytesseract.tesseract_cmd = _system_tess
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-VERSION     = '1.4.4 GUI'
-DATE        = '10-Mar-26'
+VERSION     = '1.5.0 GUI'
+DATE        = '19-Mar-26'
 CONFIG_FILE = 'tess_config.json'
 INTERVAL    = 2
 
@@ -40,8 +51,12 @@ def data_check(data_list):
         d = data_list[c]
         if '.' not in d and d != '':
             data_list[c] = f'{d[:len(d)-2]}.{d[len(d)-2:]}'
+    # range check: DEPTH 0-100000, INC 0-100, AZI 0-360
     try:
-        if float(data_list[1]) >= 100 or float(data_list[2]) >= 360:
+        depth = float(data_list[0])
+        inc   = float(data_list[1])
+        azi   = float(data_list[2])
+        if not (0 <= depth <= 100000) or inc >= 100 or azi >= 360:
             data_list = ['9.99', '9.99', '9.99']
     except Exception:
         pass
@@ -99,8 +114,8 @@ class App(tk.Tk):
         super().__init__()
         self.title(f'Read Screen  v{VERSION}')
         self.configure(bg=self.P['base'])
-        self.geometry('420x420')
-        self.minsize(360, 320)
+        self.geometry('380x350')
+        self.minsize(300, 290)
         self.resizable(True, True)
 
         self._stop_event = threading.Event()
@@ -270,7 +285,7 @@ class App(tk.Tk):
         self._radio(r0, 'Motor', self.var_tool, 'motor',
                     font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
 
-        # Row 1: Scale + Locate
+        # Row 1: Scale + Interval
         r1 = tk.Frame(inner, bg=self.P['mantle'])
         r1.pack(fill='x', pady=(0, 3))
 
@@ -282,13 +297,17 @@ class App(tk.Tk):
         self._lbl(r1, 'Interval (s)', fg=self.P['subtext0'],
                   font=('Segoe UI', 8)).pack(side='left')
         tk.Frame(r1, width=4, bg=self.P['mantle']).pack(side='left')
-        self._entry(r1, self.var_interval, width=3).pack(side='left', padx=(0, 16))
+        self._entry(r1, self.var_interval, width=3).pack(side='left')
 
-        self._lbl(r1, 'Locate', fg=self.P['subtext0'],
+        # Row 2: Locate
+        r2 = tk.Frame(inner, bg=self.P['mantle'])
+        r2.pack(fill='x', pady=(0, 3))
+
+        self._lbl(r2, 'Locate', fg=self.P['subtext0'],
                   font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
-        self._radio(r1, 'Auto',   self.var_locate, 'auto',
+        self._radio(r2, 'Auto',   self.var_locate, 'auto',
                     command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left')
-        self._radio(r1, 'Manual', self.var_locate, 'manual',
+        self._radio(r2, 'Manual', self.var_locate, 'manual',
                     command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
 
         # Row 2: XY coords + Pick
@@ -302,7 +321,7 @@ class App(tk.Tk):
             pair.pack(side='left', padx=(0, 6))
             self._lbl(pair, lbl_text, fg=self.P['subtext0'],
                       font=('Segoe UI', 7)).pack(side='left', padx=(0, 2))
-            e = self._entry(pair, var, width=5)
+            e = self._entry(pair, var, width=4)
             e.pack(side='left')
             self._xy_entries.append(e)
 
@@ -365,34 +384,37 @@ class App(tk.Tk):
     # ── Sensor card (compact single-row) ──────────────────────────────────────
     def _build_sensor_card(self, parent, tool_name, accent):
         outer = tk.Frame(parent, bg=accent)
-        outer.pack(fill='x', padx=6, pady=2)
+        outer.pack(fill='x', padx=4, pady=1)
 
         body = tk.Frame(outer, bg=self.P['mantle'])
-        body.pack(fill='both', expand=True, padx=(3, 0))
+        body.pack(fill='both', expand=True, padx=(2, 0))
 
         row = tk.Frame(body, bg=self.P['mantle'])
-        row.pack(fill='x', padx=8, pady=5)
+        row.pack(fill='x', padx=6, pady=3)
 
         badge_bg = tk.Frame(row, bg=accent)
-        badge_bg.pack(side='left', padx=(0, 10))
+        badge_bg.pack(side='left', padx=(0, 8))
         badge_lbl = tk.Label(badge_bg, text=tool_name,
                              bg=accent, fg=self.P['crust'],
-                             font=('Segoe UI', 8, 'bold'), padx=7, pady=2)
+                             font=('Segoe UI', 8, 'bold'), padx=5, pady=1)
         badge_lbl.pack()
+
+        # Grid container forces all three columns to equal width
+        cols_frame = tk.Frame(row, bg=self.P['mantle'])
+        cols_frame.pack(side='left', fill='x', expand=True)
+        for i in range(3):
+            cols_frame.columnconfigure(i, weight=1, uniform='datacol')
 
         value_labels = []
         for i, title in enumerate(['DEPTH', 'INC', 'AZI']):
-            if i > 0:
-                tk.Frame(row, bg=self.P['surface0'],
-                         width=1).pack(side='left', fill='y', padx=5)
-            col = tk.Frame(row, bg=self.P['mantle'])
-            col.pack(side='left', fill='x', expand=True)
+            col = tk.Frame(cols_frame, bg=self.P['mantle'])
+            col.grid(row=0, column=i, sticky='ew')
             tk.Label(col, text=title,
                      bg=self.P['mantle'], fg=self.P['overlay0'],
                      font=('Segoe UI', 7, 'bold'), anchor='center').pack(fill='x')
             val = tk.Label(col, text='---',
                            bg=self.P['mantle'], fg=accent,
-                           font=('Consolas', 14, 'bold'), anchor='center')
+                           font=('Consolas', 12, 'bold'), anchor='center')
             val.pack(fill='x')
             value_labels.append(val)
 
@@ -422,7 +444,7 @@ class App(tk.Tk):
         log_outer.pack(fill='both', expand=True, padx=6, pady=(0, 4))
 
         self._log = scrolledtext.ScrolledText(
-            log_outer, height=6, font=('Consolas', 8),
+            log_outer, height=4, font=('Consolas', 8),
             bg=self.P['crust'], fg=self.P['subtext0'],
             insertbackground=self.P['text'],
             state='disabled', wrap='word',
@@ -550,16 +572,17 @@ class App(tk.Tk):
             lbl.configure(text=fmt_val(val))
         for lbl, val in zip(self._lbl_rss, rss):
             lbl.configure(text=fmt_val(val))
-        # Flash white briefly on update
+        # Flash white briefly on update (shows program is still reading)
         for lbl in self._lbl_mwd + self._lbl_rss:
             lbl.configure(fg='#ffffff')
-        self.after(80, self._restore_value_colors)
+        self.after(80, lambda m=mwd, r=rss: self._restore_value_colors(m, r))
 
-    def _restore_value_colors(self):
-        for lbl in self._lbl_mwd:
-            lbl.configure(fg=self.P['green'])
-        for lbl in self._lbl_rss:
-            lbl.configure(fg=self.P['blue'])
+    def _restore_value_colors(self, mwd=None, rss=None):
+        _ERR = {'OOR', 'NaN'}
+        for lbl, val in zip(self._lbl_mwd, mwd or []):
+            lbl.configure(fg=self.P['red'] if val in _ERR else self.P['green'])
+        for lbl, val in zip(self._lbl_rss, rss or []):
+            lbl.configure(fg=self.P['red'] if val in _ERR else self.P['blue'])
 
     # ── Config ────────────────────────────────────────────────────────────────
     def _save_config(self):
@@ -816,42 +839,46 @@ class App(tk.Tk):
                 if tool == 'rss':
                     rss = data_check(rss)
 
-                # Last-known-good
+                # Resolve: returns (disp_vals, csv_vals, is_ok)
+                # csv_vals are always zeros on any error; disp_vals show OOR/NaN
                 def resolve(lst, last):
-                    if lst[0] in ('9.99', '', '0.00'):
-                        return last[:], False
+                    if lst[0] == '9.99':
+                        return ['OOR', 'OOR', 'OOR'], ['0.00', '0.00', '0.00'], False
+                    if lst[0] in ('', '0.00'):
+                        return ['NaN', 'NaN', 'NaN'], ['0.00', '0.00', '0.00'], False
                     try:
                         float(lst[0]); float(lst[1]); float(lst[2])
-                        return lst[:], True
+                        return lst[:], lst[:], True
                     except Exception:
-                        return last[:], False
+                        return ['NaN', 'NaN', 'NaN'], ['0.00', '0.00', '0.00'], False
 
-                mwd_out, mwd_ok = resolve(mwd, last_mwd)
-                if mwd_ok: last_mwd = mwd_out[:]
+                mwd_disp, mwd_csv, mwd_ok = resolve(mwd, last_mwd)
+                if mwd_ok: last_mwd = mwd_disp[:]
 
                 if tool == 'rss':
-                    rss_out, rss_ok = resolve(rss, last_rss)
-                    if rss_ok: last_rss = rss_out[:]
+                    rss_disp, rss_csv, rss_ok = resolve(rss, last_rss)
+                    if rss_ok: last_rss = rss_disp[:]
                 else:
-                    rss_out = ['--', '--', '--']
+                    rss_disp = ['--', '--', '--']
+                    rss_csv  = ['0.00', '0.00', '0.00']
 
-                # Write CSV
+                # Write CSV (zeros on error)
                 for _ in range(10):
                     try:
                         with open('output.csv', 'w', newline='') as f:
                             wr = csv.writer(f)
-                            wr.writerow(mwd_out)
+                            wr.writerow(mwd_csv)
                             if tool == 'rss':
-                                wr.writerow(rss_out)
+                                wr.writerow(rss_csv)
                         break
                     except Exception:
                         time.sleep(0.1)
 
                 # Update GUI
                 ts      = time.strftime('%H:%M:%S')
-                mwd_str = ' / '.join(fmt_val(v) for v in mwd_out)
-                rss_str = ' / '.join(fmt_val(v) for v in rss_out)
-                self._q('data', mwd_out, rss_out)
+                mwd_str = ' / '.join(fmt_val(v) for v in mwd_disp)
+                rss_str = ' / '.join(fmt_val(v) for v in rss_disp)
+                self._q('data', mwd_disp, rss_disp)
                 self._q('status', f'Last update: {ts}  |  interval: {interval}s')
                 if tool == 'rss':
                     self._q('log',

@@ -1,5 +1,16 @@
 import os
 import sys
+
+# Enable DPI awareness before any window or coordinate APIs are called.
+# Without this, Windows virtualises coords to 96 DPI (logical pixels) while
+# ImageGrab.grab() always works in physical pixels → wrong capture region at
+# display scales other than 100%.
+try:
+    from ctypes import windll as _windll
+    _windll.shcore.SetProcessDpiAwareness(2)   # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    pass
+
 import mss
 import mss.tools
 import pytesseract as tess
@@ -113,10 +124,13 @@ def data_check(data_list):
         if "." not in d:
             data_list[c] = f'{d[:len(d)-2]}.{d[len(d)-2:]}'
 
-    #check data if range, if not return zero
+    # range check: DEPTH 0-100000, INC 0-100, AZI 0-360
     try:
-        if float(data_list[1]) >= 100 or float(data_list[2]) >= 360:
-            data_list = ['9.99','9.99','9.99']
+        depth = float(data_list[0])
+        inc   = float(data_list[1])
+        azi   = float(data_list[2])
+        if not (0 <= depth <= 100000) or inc >= 100 or azi >= 360:
+            data_list = ['9.99', '9.99', '9.99']
     except:
         pass
 
@@ -146,7 +160,7 @@ def parse_survey_line(raw_text, delimiter):
 
 #declear version
 print('[bold purple4]Maxwell Read Screen Utility for Real Time Survey Calculation[/bold purple4]')
-print('[bold purple4]Version: 1.4.4 Date: 10-Mar-26[/bold purple4]\n')
+print('[bold purple4]Version: 1.5.0 Date: 19-Mar-26[/bold purple4]\n')
 print('[blue]This Python script based on Tesseract-OCR open source[/blue]')
 print('[blue]Copyright (c) 2021 under Apache License, version 2.0[/blue]')
 print('[blue]Develop by Ronnarong Wongmalasit (rwongmalasit@slb.com)[/blue]\n')
@@ -327,7 +341,7 @@ try:
             loc_y1 = int(tess_config['loc_y1'])
             loc_y2 = int(tess_config['loc_y2'])
 
-            bbox_adj = (loc_x1,loc_y1,loc_x2,loc_y2)
+            bbox_adj = (loc_x1, loc_y1, loc_x2, loc_y2)
 
             #grab screenshot
             try:
@@ -350,7 +364,7 @@ try:
                 pass
 
             #adjust bbox due to windows default invisible border (7,0,7,7)
-            bbox_adj = (bbox[0]+7,bbox[1],bbox[2]-7,bbox[3]-7)
+            bbox_adj = (bbox[0]+7, bbox[1], bbox[2]-7, bbox[3]-7)
 
             #grab screenshot
             img = ImageGrab.grab(bbox_adj,all_screens=True)
@@ -489,16 +503,13 @@ try:
         if tool_run == 'rss':
             rss_list = data_check(rss_list)
 
-        #if data is not make sense, them give error into list
+        #if data is not make sense, give error indicator; CSV always gets zeros
         if mwd_list[0] == '9.99':
-            mwd_out = ['Out','Of','Range']
-            mwd_list = last_mwd_list.copy()
-        elif mwd_list[0] == '':
-            mwd_out = ['No','Data','Found']
-            mwd_list = last_mwd_list.copy()
-        elif mwd_list[0] == '0.00':
-            mwd_out = ['Reading','Error','!!']
-            mwd_list = last_mwd_list.copy()
+            mwd_out  = ['OOR', 'OOR', 'OOR']
+            mwd_list = ['0.00', '0.00', '0.00']
+        elif mwd_list[0] in ('', '0.00'):
+            mwd_out  = ['NaN', 'NaN', 'NaN']
+            mwd_list = ['0.00', '0.00', '0.00']
         else:
             try:
                 float(mwd_list[0])
@@ -507,19 +518,16 @@ try:
                 mwd_out = mwd_list
                 last_mwd_list = mwd_list.copy()   # save as last known good
             except:
-                mwd_out = ['Not','a','Number']
-                mwd_list = last_mwd_list.copy()
+                mwd_out  = ['NaN', 'NaN', 'NaN']
+                mwd_list = ['0.00', '0.00', '0.00']
 
         if tool_run == 'rss':
             if rss_list[0] == '9.99':
-                rss_out = ['Out','Of','Range']
-                rss_list = last_rss_list.copy()
-            elif rss_list[0] == '':
-                rss_out = ['No','Data','Found']
-                rss_list = last_rss_list.copy()
-            elif rss_list[0] == '0.00':
-                rss_out = ['Reading','Error','!!']
-                rss_list = last_rss_list.copy()
+                rss_out  = ['OOR', 'OOR', 'OOR']
+                rss_list = ['0.00', '0.00', '0.00']
+            elif rss_list[0] in ('', '0.00'):
+                rss_out  = ['NaN', 'NaN', 'NaN']
+                rss_list = ['0.00', '0.00', '0.00']
             else:
                 try:
                     float(rss_list[0])
@@ -528,10 +536,11 @@ try:
                     rss_out = rss_list
                     last_rss_list = rss_list.copy()   # save as last known good
                 except:
-                    rss_out = ['Not','a','Number']
-                    rss_list = last_rss_list.copy()
+                    rss_out  = ['NaN', 'NaN', 'NaN']
+                    rss_list = ['0.00', '0.00', '0.00']
         else:
-            rss_out = ['N/A', 'N/A', 'N/A']
+            rss_out  = ['N/A', 'N/A', 'N/A']
+            rss_list = ['0.00', '0.00', '0.00']
 
 
         #create rich table
