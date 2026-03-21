@@ -36,42 +36,55 @@ Use **PyInstaller 6.x** (not Nuitka — Nuitka 4.x is incompatible with Python 3
 # Activate venv first
 source venv/Scripts/activate
 
-# CLI version (with console window)
+# Step 1 — Build CLI version (with console window)
 python -m PyInstaller --onedir --name main-cli --distpath dist_auto --icon icon.ico --noconfirm main-cli.py
 
-# GUI version (no console window)
+# Step 2 — Build GUI version (no console window)
 python -m PyInstaller --onedir --name main-gui --distpath dist_gui --icon icon.ico --noconsole --noconfirm main-gui.py
 ```
 
-After building, copy runtime assets into the dist folder:
+### Combined Release Package
+
+Both exes **share the same `_internal/`** folder. In PyInstaller 6.x the bundled Python
+archive is embedded inside each `.exe`, so `_internal/` is purely shared DLLs and
+packages. The GUI build is a superset of CLI (adds tkinter/CustomTkinter), so use the
+GUI `_internal/` as the base.
 
 ```bash
-cp tess_config.json dist_auto/main-cli/
-cp -r tesseract  dist_auto/main-cli/
+# Step 3 — Assemble combined folder
+mkdir -p dist_combined/ReadScreen-vX.X.X
+cp dist_gui/main-gui/main-gui.exe   dist_combined/ReadScreen-vX.X.X/
+cp dist_auto/main-cli/main-cli.exe  dist_combined/ReadScreen-vX.X.X/
+cp -r dist_gui/main-gui/_internal   dist_combined/ReadScreen-vX.X.X/
+cp tess_config.json                 dist_combined/ReadScreen-vX.X.X/
+cp -r tesseract                     dist_combined/ReadScreen-vX.X.X/
 
-cp tess_config.json dist_gui/main-gui/
-cp -r tesseract  dist_gui/main-gui/
+# Step 4 — Zip for release
+powershell -Command "Compress-Archive -Path 'dist_combined/ReadScreen-vX.X.X/*' -DestinationPath 'ReadScreen-vX.X.X.zip' -Force"
 ```
 
-Output structure (PyInstaller 6.x):
+Output structure:
 ```
-dist_auto/main-cli/
-    main-cli.exe
-    _internal/       ← all Python/DLL dependencies
+dist_combined/ReadScreen-vX.X.X/
+    main-cli.exe         ← CLI (console window)
+    main-gui.exe         ← GUI (no console)
+    _internal/           ← shared Python/DLL dependencies (GUI superset)
     tess_config.json
     tesseract/
-
-dist_gui/main-gui/
-    main-gui.exe
-    _internal/
-    tess_config.json
-    tesseract/
 ```
 
-Package for release:
+### GitHub Release
+
 ```bash
-powershell -Command "Compress-Archive -Path 'dist_auto/main-cli/*' -DestinationPath 'ReadScreen-vX.X.X-auto.zip' -Force"
-powershell -Command "Compress-Archive -Path 'dist_gui/main-gui/*'  -DestinationPath 'ReadScreen-vX.X.X-gui.zip'  -Force"
+# Create release and upload zip
+gh release create vX.X.X "ReadScreen-vX.X.X.zip" \
+  --title "ReadScreen vX.X.X" \
+  --notes "..." \
+  --target main
+
+# To replace an asset on an existing release:
+gh release delete-asset vX.X.X old-file.zip --yes
+gh release upload vX.X.X new-file.zip
 ```
 
 ## Prerequisites
@@ -103,9 +116,10 @@ powershell -Command "Compress-Archive -Path 'dist_gui/main-gui/*'  -DestinationP
 ### Script Variants
 | Script | Purpose |
 |--------|---------|
-| `main-cli.py` | Current production version (v1.5.0); rich UI, auto window detection |
+| `main-cli.py` | Current production version (v1.6.0); rich UI, auto window detection |
 | `main.py` | Older version (v0.3.1); uses `mss` for capture, simpler text output |
-| `main-gui.py` | GUI version |
+| `main-gui.py` | GUI version (v1.6.0); CustomTkinter, Catppuccin Mocha dark theme |
+| `main-gui-tk.py` | Backup of original tkinter GUI before CustomTkinter rewrite |
 | `main-replace.py` | Replace-method only variant |
 | `main-threshold.py` | Threshold-method only variant |
 | `ocr-debug.py` | Runs all three preprocessing methods and prints results for comparison |

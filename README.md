@@ -2,7 +2,7 @@
 
 **ReadScreen** is a Windows utility that reads real-time directional drilling survey data — **Depth**, **Inclination (INC)**, and **Azimuth (AZI)** — directly from the *Rig Floor Console* application screen using Tesseract OCR, then outputs the parsed values to `output.csv` for live survey calculations.
 
-It comes in two flavours: a **CLI version** (`main-cli.py`) with a rich terminal UI and a **GUI version** (`main-gui.py`) with a compact dark-themed tabbed interface.
+It comes in two flavours: a **CLI version** (`main-cli.py`) with a rich terminal UI and a **GUI version** (`main-gui.py`) with a compact modern dark-themed tabbed interface built on **CustomTkinter** (Catppuccin Mocha palette).
 
 ---
 
@@ -26,14 +26,13 @@ It comes in two flavours: a **CLI version** (`main-cli.py`) with a rich terminal
 
 > No Python install required on the target machine.
 
-1. Download and extract the latest release from [Releases](https://github.com/mrkaqz/readscreen/releases)
-   - `ReadScreen-v1.5.0-gui.zip` — GUI version (recommended)
-   - `ReadScreen-v1.5.0-auto.zip` — CLI/terminal version
+1. Download and extract **`ReadScreen-v1.6.0.zip`** from [Releases](https://github.com/mrkaqz/readscreen/releases)
 2. Ensure the folder structure is intact:
    ```
-   main-gui/
-   ├── main-gui.exe        # GUI version
-   ├── _internal/          # Python runtime (do not move)
+   ReadScreen-v1.6.0/
+   ├── main-gui.exe        # GUI version (recommended)
+   ├── main-cli.exe        # CLI/terminal version
+   ├── _internal/          # Shared Python runtime (do not move)
    ├── tess_config.json    # OCR configuration
    └── tesseract/          # Local Tesseract engine
    ```
@@ -44,7 +43,7 @@ It comes in two flavours: a **CLI version** (`main-cli.py`) with a rich terminal
 
 ## GUI Overview
 
-The GUI is split into two tabs:
+The GUI uses a modern dark theme (Catppuccin Mocha) and is split into two tabs:
 
 **Setup tab** — configure before starting:
 
@@ -55,16 +54,15 @@ The GUI is split into two tabs:
 | Scale | Resize factor before OCR (1–10) |
 | Interval (s) | Capture interval in seconds (1–60) |
 | Locate | `Auto` detects the Rig Floor Console window; `Manual` uses XY coordinates |
-| + Pick | Click two corners on screen to auto-fill X1 Y1 X2 Y2 |
+| Pick | Click two corners on screen to auto-fill X1 Y1 X2 Y2 |
 | START / STOP | Start or stop the capture loop |
 | Save / Load Config | Save or load all settings to `tess_config.json` |
 
 **Data tab** — shown automatically when running:
 - Live **MWD** card (green) and **RSS** card (blue) showing Depth / INC / AZI
-- Values flash white on each update; `OOR` / `NaN` shown in red for invalid readings
+- Values flash on each update; `OOR` / `NaN` shown in red for invalid readings
+- Status bar and scrolling log
 - Switches back to Setup tab automatically on STOP
-
-**Status bar + Log** — always visible at the bottom of both tabs.
 
 ---
 
@@ -154,7 +152,7 @@ python winname.py
 | `interval` | Seconds between each capture cycle |
 | `tool` | `rss` reads both MWD and RSS rows; `motor` reads MWD only |
 | `locate` | `auto` finds the Rig Floor Console window by title; `manual` uses `loc_x1/y1/x2/y2` |
-| `loc_x1/y1/x2/y2` | Screen pixel coordinates of the survey data area (GUI: use **+ Pick** button) |
+| `loc_x1/y1/x2/y2` | Screen pixel coordinates of the survey data area (GUI: use **Pick** button) |
 
 ---
 
@@ -186,23 +184,36 @@ The companion Excel workbook reads `output.csv` every few seconds and calculates
 
 ## Building from Source (PyInstaller)
 
+Use **PyInstaller 6.x** (Nuitka 4.x is incompatible with Python 3.13).
+
 ```bash
 # Activate venv
 venv\Scripts\activate
 
-# Install PyInstaller
-pip install pyinstaller
+# Build CLI version (with console window)
+python -m PyInstaller --onedir --name main-cli --distpath dist_auto --icon icon.ico --noconfirm main-cli.py
 
 # Build GUI version (no console window)
 python -m PyInstaller --onedir --name main-gui --distpath dist_gui --icon icon.ico --noconsole --noconfirm main-gui.py
-
-# Build CLI version (with console)
-python -m PyInstaller --onedir --name main-cli --distpath dist_auto --icon icon.ico --noconfirm main-cli.py
 ```
 
-Copy `tess_config.json` and the `tesseract/` folder into the output folder (`dist_gui/main-gui/` or `dist_auto/main-cli/`) before distributing.
+### Combined Release Package
 
-> **Note:** PyInstaller produces a folder-based distribution (`--onedir`), which is compatible with both Windows 10 and 11. The output folder contains the `.exe` and an `_internal/` directory — keep them together.
+Both exes share the same `_internal/` folder (the GUI build is a superset of CLI).
+Assemble a single combined package:
+
+```bash
+mkdir -p dist_combined/ReadScreen-vX.X.X
+cp dist_gui/main-gui/main-gui.exe   dist_combined/ReadScreen-vX.X.X/
+cp dist_auto/main-cli/main-cli.exe  dist_combined/ReadScreen-vX.X.X/
+cp -r dist_gui/main-gui/_internal   dist_combined/ReadScreen-vX.X.X/
+cp tess_config.json                 dist_combined/ReadScreen-vX.X.X/
+cp -r tesseract                     dist_combined/ReadScreen-vX.X.X/
+
+powershell -Command "Compress-Archive -Path 'dist_combined/ReadScreen-vX.X.X/*' -DestinationPath 'ReadScreen-vX.X.X.zip' -Force"
+```
+
+> The `_internal/` directory contains all Python/DLL dependencies and must stay alongside both `.exe` files.
 
 ---
 
@@ -210,20 +221,21 @@ Copy `tess_config.json` and the `tesseract/` folder into the output folder (`dis
 
 ```
 readscreen/
-├── main-cli.py              # CLI version (v1.5.0) — production
-├── main-gui.py               # GUI version (v1.5.0) — compact tabbed tkinter app
-├── main.py                   # Legacy CLI (v0.3.1, uses mss + config.json)
-├── main-replace.py           # Replace-method only variant
-├── main-threshold.py         # Threshold-method only variant
-├── ocr-debug.py              # Side-by-side OCR debug (all 3 methods)
-├── create-config.py          # Interactive coord capture → config.json
-├── winname.py                # Print foreground window title in a loop
-├── setup_tesseract.py        # Extract local Tesseract from installer
-├── replace-traindata.py      # Copy eng.traineddata to tessdata dir
-├── tess_config.json          # Active OCR config
-├── config.json               # Legacy config (used by main.py)
-├── icon.ico                  # App icon
-├── requirements.txt          # Python dependencies
+├── main-cli.py              # CLI version (v1.6.0) — production
+├── main-gui.py              # GUI version (v1.6.0) — CustomTkinter dark UI
+├── main-gui-tk.py           # Backup of original tkinter GUI (pre-v1.6.0)
+├── main.py                  # Legacy CLI (v0.3.1, uses mss + config.json)
+├── main-replace.py          # Replace-method only variant
+├── main-threshold.py        # Threshold-method only variant
+├── ocr-debug.py             # Side-by-side OCR debug (all 3 methods)
+├── create-config.py         # Interactive coord capture → config.json
+├── winname.py               # Print foreground window title in a loop
+├── setup_tesseract.py       # Extract local Tesseract from installer
+├── replace-traindata.py     # Copy eng.traineddata to tessdata dir
+├── tess_config.json         # Active OCR config
+├── config.json              # Legacy config (used by main.py)
+├── icon.ico                 # App icon
+├── requirements.txt         # Python dependencies
 └── Survey Realtime Track Sheet-Auto V.0.3.8.xlsm  # Companion Excel
 ```
 
