@@ -39,8 +39,8 @@ else:
     tess.pytesseract.tesseract_cmd = _system_tess
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-VERSION     = '1.5.0 GUI'
-DATE        = '19-Mar-26'
+VERSION     = '1.6.0 GUI'
+DATE        = '21-Mar-26'
 CONFIG_FILE = 'tess_config.json'
 INTERVAL    = 2
 
@@ -113,7 +113,7 @@ class App(ctk.CTk):
         super().__init__()
         self.title(f'Read Screen  v{VERSION}')
         self.configure(fg_color=self.P['base'])
-        self._init_width = 360
+        self._init_width = 310
         self.geometry(f'{self._init_width}x600')   # temp height; snapped after build
         self.minsize(280, 200)
         self.resizable(True, True)
@@ -157,11 +157,39 @@ class App(ctk.CTk):
                             font=('Bahnschrift', 11, 'bold'),
                             anchor='w')
 
+    def _seg_btn(self, parent, values, variable=None, command=None, **kwargs):
+        """CTkSegmentedButton with dark text on selected, light on unselected."""
+        SEL_TEXT   = '#1e1e2e'   # dark — readable on pastel selected bg
+        UNSEL_TEXT = self.P['text']
+        seg = None
+
+        def _refresh(*_):
+            if seg is None:
+                return
+            cur = seg.get()
+            for v, btn in seg._buttons_dict.items():
+                btn.configure(text_color=SEL_TEXT if v == cur else UNSEL_TEXT)
+
+        def _cmd(val):
+            if command:
+                command(val)
+            self.after(1, _refresh)
+
+        seg = ctk.CTkSegmentedButton(
+            parent, values=values, variable=variable,
+            command=_cmd, text_color=UNSEL_TEXT, **kwargs
+        )
+        if variable:
+            variable.trace_add('write', lambda *_: self.after(1, _refresh))
+        self.after(20, _refresh)   # initial colour pass after render
+        return seg
+
     def _snap_to_content(self):
         self.update_idletasks()
-        # winfo_reqheight on root = header + tabbar + setup (Data tab is unmanaged)
-        h = self.winfo_reqheight()
-        self.geometry(f'{self._init_width}x{h}')
+        # winfo_reqheight returns physical pixels; geometry() uses logical pixels
+        dpi_scale = self.winfo_fpixels('1i') / 96
+        h_logical = int(self.winfo_reqheight() / dpi_scale)
+        self.geometry(f'{self._init_width}x{h_logical}')
 
     def _on_resize(self, event):
         if event.widget is not self:
@@ -222,7 +250,7 @@ class App(ctk.CTk):
         bar.pack(fill='x')
         bar.pack_propagate(False)
 
-        self._tab_seg = ctk.CTkSegmentedButton(
+        self._tab_seg = self._seg_btn(
             bar,
             values=['Setup', 'Data'],
             command=self._show_tab,
@@ -231,7 +259,6 @@ class App(ctk.CTk):
             selected_hover_color=self._lighten(self.P['lavender'], 15),
             unselected_color=self.P['surface0'],
             unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
             text_color_disabled=self.P['overlay0'],
             font=('Bahnschrift', 11, 'bold'),
             corner_radius=4,
@@ -252,7 +279,7 @@ class App(ctk.CTk):
         r0 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
         r0.pack(fill='x', pady=(0, 4))
         self._sec_lbl(r0, 'Method').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
+        self._seg_btn(
             r0,
             values=['replace', 'threshold', 'original'],
             variable=self.var_method,
@@ -261,7 +288,6 @@ class App(ctk.CTk):
             selected_hover_color=self._lighten(self.P['mauve'], 15),
             unselected_color=self.P['surface0'],
             unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
             font=('Bahnschrift', 11, 'bold'),
             corner_radius=4,
             height=28,
@@ -271,7 +297,7 @@ class App(ctk.CTk):
         r1 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
         r1.pack(fill='x', pady=(0, 4))
         self._sec_lbl(r1, 'Tool').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
+        self._seg_btn(
             r1,
             values=['rss', 'motor'],
             variable=self.var_tool,
@@ -280,7 +306,6 @@ class App(ctk.CTk):
             selected_hover_color=self._lighten(self.P['teal'], 15),
             unselected_color=self.P['surface0'],
             unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
             font=('Bahnschrift', 11, 'bold'),
             corner_radius=4,
             height=28,
@@ -308,7 +333,7 @@ class App(ctk.CTk):
         r3 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
         r3.pack(fill='x', pady=(0, 4))
         self._sec_lbl(r3, 'Locate').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
+        self._seg_btn(
             r3,
             values=['auto', 'manual'],
             variable=self.var_locate,
@@ -318,7 +343,6 @@ class App(ctk.CTk):
             selected_hover_color=self._lighten(self.P['peach'], 15),
             unselected_color=self.P['surface0'],
             unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
             font=('Bahnschrift', 11, 'bold'),
             corner_radius=4,
             height=28,
