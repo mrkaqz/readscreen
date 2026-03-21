@@ -160,7 +160,7 @@ def parse_survey_line(raw_text, delimiter):
 
 #declear version
 print('[bold purple4]Maxwell Read Screen Utility for Real Time Survey Calculation[/bold purple4]')
-print('[bold purple4]Version: 1.5.0 Date: 19-Mar-26[/bold purple4]\n')
+print('[bold purple4]Version: 1.6.0 Date: 21-Mar-26[/bold purple4]\n')
 print('[blue]This Python script based on Tesseract-OCR open source[/blue]')
 print('[blue]Copyright (c) 2021 under Apache License, version 2.0[/blue]')
 print('[blue]Develop by Ronnarong Wongmalasit (rwongmalasit@slb.com)[/blue]\n')
