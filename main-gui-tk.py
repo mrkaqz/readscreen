@@ -1,12 +1,13 @@
 import os
 import sys
 
-# Must be called before any window creation.
-# Without this, Windows returns DPI-virtualised coords from all APIs
-# while ImageGrab.grab() always works in physical pixels.
+# Must be called before tkinter creates any window.
+# Without this, Windows returns DPI-virtualised (logical) coords from all APIs
+# while ImageGrab.grab() always works in physical pixels — wrong capture region
+# at display scales other than 100%.
 import ctypes
 try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PROCESS_PER_MONITOR_DPI_AWARE
 except Exception:
     pass
 
@@ -19,16 +20,12 @@ import queue
 import threading
 import numpy as np
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import scrolledtext, messagebox
 from PIL import Image, ImageGrab
 import pytesseract as tess
 import win32gui
-import customtkinter as ctk
 
-ctk.set_appearance_mode('dark')
-ctk.set_default_color_theme('dark-blue')
-
-# ── Tesseract auto-detection ──────────────────────────────────────────────────
+# ── Tesseract auto-detection (mirrors main-cli.py) ───────────────────────────
 _script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
 _local_tess  = os.path.join(_script_dir, 'tesseract', 'tesseract.exe')
 _system_tess = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -54,6 +51,7 @@ def data_check(data_list):
         d = data_list[c]
         if '.' not in d and d != '':
             data_list[c] = f'{d[:len(d)-2]}.{d[len(d)-2:]}'
+    # range check: DEPTH 0-100000, INC 0-100, AZI 0-360
     try:
         depth = float(data_list[0])
         inc   = float(data_list[1])
@@ -66,6 +64,9 @@ def data_check(data_list):
 
 
 def parse_survey_line(raw_text, delimiter):
+    """Parse [depth, inc, azi] using delimiter; falls back to positional decimal
+    extraction.  Extracts only the first 1-2 decimal place number from each
+    split segment to guard against TVD column concatenation."""
     parts = raw_text.split(delimiter)
     if len(parts) == 3:
         cleaned = []
@@ -87,7 +88,7 @@ def fmt_val(v):
 
 
 # ── Application ───────────────────────────────────────────────────────────────
-class App(ctk.CTk):
+class App(tk.Tk):
 
     # Catppuccin Mocha palette
     P = {
@@ -112,36 +113,31 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f'Read Screen  v{VERSION}')
-        self.configure(fg_color=self.P['base'])
-        self._init_width = 360
-        self.geometry(f'{self._init_width}x600')   # temp height; snapped after build
-        self.minsize(280, 200)
+        self.configure(bg=self.P['base'])
+        self.geometry('380x350')
+        self.minsize(300, 290)
         self.resizable(True, True)
 
-        self._stop_event  = threading.Event()
-        self._worker      = None
-        self._queue       = queue.Queue()
-        self._val_labels  = []   # all sensor card value labels for dynamic font
+        self._stop_event = threading.Event()
+        self._worker     = None
+        self._queue      = queue.Queue()
 
         self.var_method   = tk.StringVar(value='replace')
         self.var_tool     = tk.StringVar(value='rss')
         self.var_locate   = tk.StringVar(value='auto')
         self.var_scale    = tk.StringVar(value='3')
         self.var_interval = tk.StringVar(value='2')
-        self.var_x1       = tk.StringVar(value='10')
-        self.var_y1       = tk.StringVar(value='10')
-        self.var_x2       = tk.StringVar(value='100')
-        self.var_y2       = tk.StringVar(value='100')
+        self.var_x1     = tk.StringVar(value='10')
+        self.var_y1     = tk.StringVar(value='10')
+        self.var_x2     = tk.StringVar(value='100')
+        self.var_y2     = tk.StringVar(value='100')
 
         self._build_ui()
         self._load_config()
         self._poll_queue()
         self.protocol('WM_DELETE_WINDOW', self._on_close)
-        self.bind('<Configure>', self._on_resize)
-        # Snap to content height after layout settles
-        self.after(10, self._snap_to_content)
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── Widget factories ──────────────────────────────────────────────────────
     @staticmethod
     def _lighten(hex_color, amount=25):
         r = min(255, int(hex_color[1:3], 16) + amount)
@@ -149,296 +145,261 @@ class App(ctk.CTk):
         b = min(255, int(hex_color[5:7], 16) + amount)
         return f'#{r:02x}{g:02x}{b:02x}'
 
-    def _sec_lbl(self, parent, text):
-        """Small dimmed section label."""
-        return ctk.CTkLabel(parent, text=text,
-                            text_color=self.P['overlay0'],
-                            fg_color='transparent',
-                            font=('Bahnschrift', 11, 'bold'),
-                            anchor='w')
+    def _lbl(self, parent, text, fg=None, font=None, **kw):
+        return tk.Label(parent, text=text,
+                        bg=parent['bg'], fg=fg or self.P['text'],
+                        font=font or ('Segoe UI', 9), **kw)
 
-    def _snap_to_content(self):
-        self.update_idletasks()
-        # winfo_reqheight on root = header + tabbar + setup (Data tab is unmanaged)
-        h = self.winfo_reqheight()
-        self.geometry(f'{self._init_width}x{h}')
+    def _radio(self, parent, text, var, value, command=None, font=None):
+        return tk.Radiobutton(parent, text=text, variable=var, value=value,
+                              bg=parent['bg'], fg=self.P['text'],
+                              selectcolor=self.P['surface0'],
+                              activebackground=parent['bg'],
+                              activeforeground=self.P['text'],
+                              font=font or ('Segoe UI', 9), command=command)
 
-    def _on_resize(self, event):
-        if event.widget is not self:
-            return
-        # Scale value font 9–14pt across window width 280–480px
-        size = max(9, min(14, (event.width - 100) // 20))
-        font = ('Consolas', size, 'bold')
-        for lbl in self._val_labels:
-            lbl.configure(font=font)
+    def _entry(self, parent, var, width=6):
+        return tk.Entry(parent, textvariable=var, width=width,
+                        bg=self.P['surface0'], fg=self.P['text'],
+                        insertbackground=self.P['text'],
+                        relief='flat', bd=5,
+                        highlightthickness=1,
+                        highlightcolor=self.P['lavender'],
+                        highlightbackground=self.P['surface1'],
+                        font=('Consolas', 9))
+
+    def _flat_btn(self, parent, text, bg, fg, command, font=None, pady=None, **kw):
+        return tk.Button(parent, text=text, bg=bg, fg=fg,
+                         activebackground=self._lighten(bg),
+                         activeforeground=fg,
+                         font=font or ('Segoe UI', 10, 'bold'),
+                         relief='flat', bd=0, padx=16,
+                         pady=pady if pady is not None else 9,
+                         cursor='hand2', command=command, **kw)
+
+    def _section_label(self, text):
+        tk.Label(self, text=text, bg=self.P['base'],
+                 fg=self.P['overlay0'], font=('Segoe UI', 7, 'bold'),
+                 padx=16, pady=0, anchor='w').pack(fill='x', pady=(10, 2))
+
+    def _hsep(self, color=None):
+        tk.Frame(self, bg=color or self.P['surface0'], height=1).pack(fill='x')
 
     # ── Build UI ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         self._build_header()
         self._build_tab_bar()
         self._build_setup_tab()
-        self._build_data_tab()   # status bar + log live inside Data tab
+        self._build_data_tab()
+        self._build_statusbar()
+        self._build_log()
         self._show_tab('Setup')
 
-    # ── Tab switching ─────────────────────────────────────────────────────────
+    # ── Tab switching ──────────────────────────────────────────────────────────
     def _show_tab(self, name):
-        self._tab_seg.set(name)
         for n, frame in self._tab_frames.items():
             if n == name:
-                frame.pack(fill='both', expand=True, padx=0, pady=0)
+                frame.pack(fill='x')
+                self._tab_btns[n].configure(
+                    bg=self.P['lavender'], fg=self.P['crust'])
             else:
-                frame.forget()
+                frame.pack_forget()
+                self._tab_btns[n].configure(
+                    bg=self.P['surface0'], fg=self.P['subtext0'])
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _build_header(self):
-        hdr = ctk.CTkFrame(self, fg_color=self.P['crust'],
-                           height=34, corner_radius=0)
+        hdr = tk.Frame(self, bg=self.P['crust'], height=30)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
 
-        left = ctk.CTkFrame(hdr, fg_color=self.P['crust'], corner_radius=0)
-        left.pack(side='left', fill='y', padx=(12, 0))
+        left = tk.Frame(hdr, bg=self.P['crust'])
+        left.pack(side='left', fill='y', padx=(10, 0))
 
-        dot_c = tk.Canvas(left, width=8, height=8,
-                          bg=self.P['crust'], highlightthickness=0)
-        dot_c.pack(side='left', pady=13)
-        dot_c.create_oval(0, 0, 8, 8, fill=self.P['green'], outline='')
+        dot = tk.Canvas(left, width=7, height=7,
+                        bg=self.P['crust'], highlightthickness=0)
+        dot.pack(side='left', pady=11)
+        dot.create_oval(0, 0, 7, 7, fill=self.P['green'], outline='')
 
-        ctk.CTkLabel(left, text='Maxwell Read Screen',
-                     text_color=self.P['text'],
-                     fg_color='transparent',
-                     font=('Bahnschrift', 12, 'bold')).pack(side='left', padx=(7, 0))
+        tk.Label(left, text='Maxwell Read Screen',
+                 bg=self.P['crust'], fg=self.P['text'],
+                 font=('Segoe UI', 9, 'bold')).pack(side='left', padx=(6, 0))
 
-        ctk.CTkLabel(hdr, text=f'v{VERSION}',
-                     text_color=self.P['overlay0'],
-                     fg_color='transparent',
-                     font=('Bahnschrift', 10, 'bold')).pack(side='right', padx=12)
+        tk.Label(hdr, text=f'v{VERSION}',
+                 bg=self.P['crust'], fg=self.P['overlay0'],
+                 font=('Segoe UI', 8)).pack(side='right', padx=10)
 
-    # ── Tab bar (CTkSegmentedButton) ──────────────────────────────────────────
+    # ── Tab bar ───────────────────────────────────────────────────────────────
     def _build_tab_bar(self):
-        self._tab_frames = {}
-        bar = ctk.CTkFrame(self, fg_color=self.P['surface0'],
-                           height=30, corner_radius=0)
+        bar = tk.Frame(self, bg=self.P['surface0'], height=26)
         bar.pack(fill='x')
         bar.pack_propagate(False)
 
-        self._tab_seg = ctk.CTkSegmentedButton(
-            bar,
-            values=['Setup', 'Data'],
-            command=self._show_tab,
-            fg_color=self.P['surface0'],
-            selected_color=self.P['lavender'],
-            selected_hover_color=self._lighten(self.P['lavender'], 15),
-            unselected_color=self.P['surface0'],
-            unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
-            text_color_disabled=self.P['overlay0'],
-            font=('Bahnschrift', 11, 'bold'),
-            corner_radius=4,
-            border_width=0,
-            height=28,
-        )
-        self._tab_seg.pack(side='left', padx=4, pady=2)
+        self._tab_frames = {}
+        self._tab_btns   = {}
+
+        for name in ('Setup', 'Data'):
+            btn = tk.Button(bar, text=name,
+                            bg=self.P['surface0'], fg=self.P['subtext0'],
+                            activebackground=self.P['lavender'],
+                            activeforeground=self.P['crust'],
+                            font=('Segoe UI', 8, 'bold'),
+                            relief='flat', bd=0, padx=14, pady=4,
+                            cursor='hand2',
+                            command=lambda n=name: self._show_tab(n))
+            btn.pack(side='left')
+            self._tab_btns[name] = btn
 
     # ── Setup tab ─────────────────────────────────────────────────────────────
     def _build_setup_tab(self):
-        F = ctk.CTkFrame(self, fg_color=self.P['mantle'], corner_radius=0)
+        F = tk.Frame(self, bg=self.P['mantle'])
         self._tab_frames['Setup'] = F
 
-        inner = ctk.CTkFrame(F, fg_color=self.P['mantle'], corner_radius=0)
-        inner.pack(fill='x', padx=8, pady=6)
+        inner = tk.Frame(F, bg=self.P['mantle'])
+        inner.pack(fill='x', padx=10, pady=6)
 
-        # ── Row 0: Method ──
-        r0 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        r0.pack(fill='x', pady=(0, 4))
-        self._sec_lbl(r0, 'Method').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
-            r0,
-            values=['replace', 'threshold', 'original'],
-            variable=self.var_method,
-            fg_color=self.P['surface0'],
-            selected_color=self.P['mauve'],
-            selected_hover_color=self._lighten(self.P['mauve'], 15),
-            unselected_color=self.P['surface0'],
-            unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
-            font=('Bahnschrift', 11, 'bold'),
-            corner_radius=4,
-            height=28,
-        ).pack(side='left', fill='x', expand=True)
+        # Row 0: Method + Tool
+        r0 = tk.Frame(inner, bg=self.P['mantle'])
+        r0.pack(fill='x', pady=(0, 3))
 
-        # ── Row 1: Tool ──
-        r1 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        r1.pack(fill='x', pady=(0, 4))
-        self._sec_lbl(r1, 'Tool').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
-            r1,
-            values=['rss', 'motor'],
-            variable=self.var_tool,
-            fg_color=self.P['surface0'],
-            selected_color=self.P['teal'],
-            selected_hover_color=self._lighten(self.P['teal'], 15),
-            unselected_color=self.P['surface0'],
-            unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
-            font=('Bahnschrift', 11, 'bold'),
-            corner_radius=4,
-            height=28,
-        ).pack(side='left', fill='x', expand=True)
+        self._lbl(r0, 'Method', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r0, width=4, bg=self.P['mantle']).pack(side='left')
+        om = tk.OptionMenu(r0, self.var_method,
+                           'replace', 'replace', 'threshold', 'original')
+        om.configure(bg=self.P['surface0'], fg=self.P['text'],
+                     activebackground=self.P['surface1'],
+                     activeforeground=self.P['text'],
+                     highlightthickness=0, relief='flat',
+                     font=('Segoe UI', 8), bd=0, padx=5, pady=1)
+        om['menu'].configure(bg=self.P['surface0'], fg=self.P['text'],
+                             activebackground=self.P['lavender'],
+                             activeforeground=self.P['crust'],
+                             font=('Segoe UI', 8), bd=0)
+        om.pack(side='left', padx=(0, 16))
 
-        # ── Row 2: Scale + Interval ──
-        r2 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        r2.pack(fill='x', pady=(0, 4))
+        self._lbl(r0, 'Tool', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
+        self._radio(r0, 'RSS',   self.var_tool, 'rss',
+                    font=('Segoe UI', 8)).pack(side='left')
+        self._radio(r0, 'Motor', self.var_tool, 'motor',
+                    font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
 
-        self._sec_lbl(r2, 'Scale').pack(side='left', padx=(0, 4))
-        ctk.CTkEntry(r2, textvariable=self.var_scale, width=48,
-                     fg_color=self.P['surface0'], text_color=self.P['text'],
-                     border_color=self.P['surface1'], border_width=1,
-                     font=('Consolas', 11), corner_radius=4,
-                     ).pack(side='left', padx=(0, 16))
+        # Row 1: Scale + Interval
+        r1 = tk.Frame(inner, bg=self.P['mantle'])
+        r1.pack(fill='x', pady=(0, 3))
 
-        self._sec_lbl(r2, 'Interval (s)').pack(side='left', padx=(0, 4))
-        ctk.CTkEntry(r2, textvariable=self.var_interval, width=48,
-                     fg_color=self.P['surface0'], text_color=self.P['text'],
-                     border_color=self.P['surface1'], border_width=1,
-                     font=('Consolas', 11), corner_radius=4,
-                     ).pack(side='left')
+        self._lbl(r1, 'Scale', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r1, width=4, bg=self.P['mantle']).pack(side='left')
+        self._entry(r1, self.var_scale, width=3).pack(side='left', padx=(0, 16))
 
-        # ── Row 3: Locate ──
-        r3 = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        r3.pack(fill='x', pady=(0, 4))
-        self._sec_lbl(r3, 'Locate').pack(side='left', padx=(0, 6))
-        ctk.CTkSegmentedButton(
-            r3,
-            values=['auto', 'manual'],
-            variable=self.var_locate,
-            command=lambda _: self._toggle_xy(),
-            fg_color=self.P['surface0'],
-            selected_color=self.P['peach'],
-            selected_hover_color=self._lighten(self.P['peach'], 15),
-            unselected_color=self.P['surface0'],
-            unselected_hover_color=self.P['surface1'],
-            text_color=self.P['text'],
-            font=('Bahnschrift', 11, 'bold'),
-            corner_radius=4,
-            height=28,
-        ).pack(side='left', fill='x', expand=True)
+        self._lbl(r1, 'Interval (s)', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left')
+        tk.Frame(r1, width=4, bg=self.P['mantle']).pack(side='left')
+        self._entry(r1, self.var_interval, width=3).pack(side='left')
 
-        # ── Row 4: XY coords (2×2 grid) + Pick ──
-        self._xy_frame = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        self._xy_frame.pack(fill='x', pady=(0, 8))
+        # Row 2: Locate
+        r2 = tk.Frame(inner, bg=self.P['mantle'])
+        r2.pack(fill='x', pady=(0, 3))
 
-        coords_grid = ctk.CTkFrame(self._xy_frame, fg_color='transparent', corner_radius=0)
-        coords_grid.pack(side='left', fill='x', expand=True)
+        self._lbl(r2, 'Locate', fg=self.P['subtext0'],
+                  font=('Segoe UI', 8)).pack(side='left', padx=(0, 4))
+        self._radio(r2, 'Auto',   self.var_locate, 'auto',
+                    command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left')
+        self._radio(r2, 'Manual', self.var_locate, 'manual',
+                    command=self._toggle_xy, font=('Segoe UI', 8)).pack(side='left', padx=(4, 0))
+
+        # Row 2: XY coords + Pick
+        self._xy_frame = tk.Frame(inner, bg=self.P['mantle'])
+        self._xy_frame.pack(fill='x', pady=(0, 3))
 
         self._xy_entries = []
-        for row_i, (pairs) in enumerate([
-            [('X1', self.var_x1), ('Y1', self.var_y1)],
-            [('X2', self.var_x2), ('Y2', self.var_y2)],
-        ]):
-            for col_i, (lbl_text, var) in enumerate(pairs):
-                pair = ctk.CTkFrame(coords_grid, fg_color='transparent', corner_radius=0)
-                pair.grid(row=row_i, column=col_i, padx=(0, 6), pady=(0, 3), sticky='w')
-                ctk.CTkLabel(pair, text=lbl_text,
-                             text_color=self.P['subtext0'],
-                             fg_color='transparent',
-                             font=('Bahnschrift', 10, 'bold')).pack(side='left', padx=(0, 3))
-                e = ctk.CTkEntry(pair, textvariable=var, width=72,
-                                 fg_color=self.P['surface0'],
-                                 text_color=self.P['text'],
-                                 border_color=self.P['surface1'], border_width=1,
-                                 font=('Consolas', 11), corner_radius=4)
-                e.pack(side='left')
-                self._xy_entries.append(e)
+        for lbl_text, var in [('X1', self.var_x1), ('Y1', self.var_y1),
+                               ('X2', self.var_x2), ('Y2', self.var_y2)]:
+            pair = tk.Frame(self._xy_frame, bg=self.P['mantle'])
+            pair.pack(side='left', padx=(0, 6))
+            self._lbl(pair, lbl_text, fg=self.P['subtext0'],
+                      font=('Segoe UI', 7)).pack(side='left', padx=(0, 2))
+            e = self._entry(pair, var, width=4)
+            e.pack(side='left')
+            self._xy_entries.append(e)
 
-        ctk.CTkButton(self._xy_frame, text='Pick',
-                      command=self._pick_coords,
-                      fg_color=self.P['surface0'],
-                      text_color=self.P['lavender'],
-                      hover_color=self.P['surface1'],
-                      font=('Bahnschrift', 10, 'bold'),
-                      corner_radius=4, height=58, width=56,
-                      ).pack(side='left', padx=(0, 0))
+        tk.Button(self._xy_frame, text='+ Pick',
+                  bg=self.P['surface0'], fg=self.P['lavender'],
+                  activebackground=self.P['surface1'],
+                  activeforeground=self.P['lavender'],
+                  font=('Segoe UI', 7, 'bold'),
+                  relief='flat', bd=0, padx=5, pady=2,
+                  cursor='hand2', command=self._pick_coords
+                  ).pack(side='left', padx=(4, 0))
 
         self._pick_overlay = None
         self._pick_points  = []
         self._toggle_xy()
 
-        # ── 4 uniform buttons: START / STOP / Save / Load ──
-        btns = ctk.CTkFrame(inner, fg_color='transparent', corner_radius=0)
-        btns.pack(fill='x')
+        # Rows 3-4: START/STOP + Save/Load — unified 2×2 grid, equal sizing
+        btns = tk.Frame(inner, bg=self.P['mantle'])
+        btns.pack(fill='x', pady=(4, 0))
         btns.columnconfigure(0, weight=1)
         btns.columnconfigure(1, weight=1)
 
-        _BH = 34
-        _BF = ('Bahnschrift', 11, 'bold')
-        _BR = 5
+        _BF = ('Segoe UI', 9, 'bold')   # shared font for all 4 buttons
+        _PY = 5                          # shared pady
 
-        self._btn_start = ctk.CTkButton(
-            btns, text='▶  START',
-            command=self._start,
-            fg_color=self.P['green'], text_color=self.P['crust'],
-            hover_color=self._lighten(self.P['green']),
-            font=_BF, corner_radius=_BR, height=_BH)
-        self._btn_start.grid(row=0, column=0, sticky='ew', padx=(0, 2), pady=(0, 2))
+        self._btn_start = self._flat_btn(
+            btns, '▶  START', self.P['green'], self.P['crust'], self._start,
+            font=_BF, pady=_PY)
+        self._btn_start.grid(row=0, column=0, sticky='ew',
+                              padx=(0, 2), pady=(0, 2))
 
-        self._btn_stop = ctk.CTkButton(
-            btns, text='■  STOP',
-            command=self._stop,
-            fg_color=self.P['surface0'], text_color=self.P['overlay0'],
-            hover_color=self.P['surface0'],
-            font=_BF, corner_radius=_BR, height=_BH, state='disabled')
-        self._btn_stop.grid(row=0, column=1, sticky='ew', padx=(2, 0), pady=(0, 2))
+        self._btn_stop = self._flat_btn(
+            btns, '■  STOP', self.P['surface0'], self.P['overlay0'], self._stop,
+            font=_BF, pady=_PY)
+        self._btn_stop.configure(state='disabled',
+                                  activebackground=self.P['surface0'])
+        self._btn_stop.grid(row=0, column=1, sticky='ew',
+                             padx=(2, 0), pady=(0, 2))
 
-        ctk.CTkButton(btns, text='Save Config',
-                      command=self._save_config,
-                      fg_color=self.P['surface0'], text_color=self.P['subtext0'],
-                      hover_color=self.P['surface1'],
-                      font=_BF, corner_radius=_BR, height=_BH,
-                      ).grid(row=1, column=0, sticky='ew', padx=(0, 2))
+        for col, (label, cmd) in enumerate([('Save Config', self._save_config),
+                                             ('Load Config', self._load_config)]):
+            tk.Button(btns, text=label, command=cmd,
+                      bg=self.P['surface0'], fg=self.P['subtext0'],
+                      activebackground=self.P['surface1'],
+                      activeforeground=self.P['text'],
+                      font=_BF, relief='flat', bd=0,
+                      padx=0, pady=_PY, cursor='hand2'
+                      ).grid(row=1, column=col, sticky='ew',
+                             padx=(0, 2) if col == 0 else (2, 0))
 
-        ctk.CTkButton(btns, text='Load Config',
-                      command=self._load_config,
-                      fg_color=self.P['surface0'], text_color=self.P['subtext0'],
-                      hover_color=self.P['surface1'],
-                      font=_BF, corner_radius=_BR, height=_BH,
-                      ).grid(row=1, column=1, sticky='ew', padx=(2, 0))
-
-    # ── Data tab (includes status bar + log) ──────────────────────────────────
+    # ── Data tab ──────────────────────────────────────────────────────────────
     def _build_data_tab(self):
-        F = ctk.CTkFrame(self, fg_color=self.P['base'], corner_radius=0)
+        F = tk.Frame(self, bg=self.P['base'])
         self._tab_frames['Data'] = F
 
         _, self._lbl_mwd = self._build_sensor_card(F, 'MWD', self.P['green'])
         self._rss_badge, self._lbl_rss = self._build_sensor_card(
             F, 'RSS', self.P['blue'])
 
-        self._build_statusbar(F)
-        self._build_log(F)
-
-    # ── Sensor card ───────────────────────────────────────────────────────────
+    # ── Sensor card (compact single-row) ──────────────────────────────────────
     def _build_sensor_card(self, parent, tool_name, accent):
-        outer = ctk.CTkFrame(parent, fg_color=accent,
-                             corner_radius=6)
-        outer.pack(fill='x', padx=6, pady=3)
+        outer = tk.Frame(parent, bg=accent)
+        outer.pack(fill='x', padx=4, pady=1)
 
-        body = ctk.CTkFrame(outer, fg_color=self.P['mantle'],
-                            corner_radius=5)
-        body.pack(fill='both', expand=True, padx=(2, 0), pady=(0, 0))
+        body = tk.Frame(outer, bg=self.P['mantle'])
+        body.pack(fill='both', expand=True, padx=(2, 0))
 
-        row = ctk.CTkFrame(body, fg_color=self.P['mantle'], corner_radius=0)
-        row.pack(fill='x', padx=8, pady=5)
+        row = tk.Frame(body, bg=self.P['mantle'])
+        row.pack(fill='x', padx=6, pady=3)
 
-        badge = ctk.CTkFrame(row, fg_color=accent, corner_radius=4)
-        badge.pack(side='left', padx=(0, 10))
-        badge_lbl = ctk.CTkLabel(badge, text=tool_name,
-                                 text_color=self.P['crust'],
-                                 fg_color='transparent',
-                                 font=('Bahnschrift', 11, 'bold'),
-                                 padx=6, pady=2)
+        badge_bg = tk.Frame(row, bg=accent)
+        badge_bg.pack(side='left', padx=(0, 8))
+        badge_lbl = tk.Label(badge_bg, text=tool_name,
+                             bg=accent, fg=self.P['crust'],
+                             font=('Segoe UI', 8, 'bold'), padx=5, pady=1)
         badge_lbl.pack()
 
-        # Grid container: 3 equal-width columns
+        # Grid container forces all three columns to equal width
         cols_frame = tk.Frame(row, bg=self.P['mantle'])
         cols_frame.pack(side='left', fill='x', expand=True)
         for i in range(3):
@@ -446,58 +407,48 @@ class App(ctk.CTk):
 
         value_labels = []
         for i, title in enumerate(['DEPTH', 'INC', 'AZI']):
-            tk.Label(cols_frame, text=title,
+            col = tk.Frame(cols_frame, bg=self.P['mantle'])
+            col.grid(row=0, column=i, sticky='ew')
+            tk.Label(col, text=title,
                      bg=self.P['mantle'], fg=self.P['overlay0'],
-                     font=('Bahnschrift', 10, 'bold'), anchor='center').grid(
-                         row=0, column=i, sticky='ew')
-            val = tk.Label(cols_frame, text='---',
+                     font=('Segoe UI', 7, 'bold'), anchor='center').pack(fill='x')
+            val = tk.Label(col, text='---',
                            bg=self.P['mantle'], fg=accent,
                            font=('Consolas', 12, 'bold'), anchor='center')
-            val.grid(row=1, column=i, sticky='ew')
+            val.pack(fill='x')
             value_labels.append(val)
 
-        self._val_labels.extend(value_labels)
         return badge_lbl, value_labels
 
     # ── Status bar ────────────────────────────────────────────────────────────
-    def _build_statusbar(self, parent):
-        ctk.CTkFrame(parent, fg_color=self.P['surface0'],
-                     height=1, corner_radius=0).pack(fill='x')
-        sb = ctk.CTkFrame(parent, fg_color=self.P['mantle'], corner_radius=0)
+    def _build_statusbar(self):
+        self._hsep()
+        sb = tk.Frame(self, bg=self.P['mantle'])
         sb.pack(fill='x')
 
         self._dot_canvas = tk.Canvas(sb, width=8, height=8,
                                      bg=self.P['mantle'], highlightthickness=0)
-        self._dot_canvas.pack(side='left', padx=(12, 6), pady=6)
+        self._dot_canvas.pack(side='left', padx=(10, 5), pady=5)
         self._dot = self._dot_canvas.create_oval(
             0, 0, 8, 8, fill=self.P['overlay0'], outline='')
 
         self._status_var = tk.StringVar(value='Ready')
-        ctk.CTkLabel(sb, textvariable=self._status_var,
-                     text_color=self.P['subtext0'],
-                     fg_color='transparent',
-                     font=('Bahnschrift', 11, 'bold'),
-                     anchor='w').pack(side='left')
+        tk.Label(sb, textvariable=self._status_var,
+                 bg=self.P['mantle'], fg=self.P['subtext0'],
+                 font=('Segoe UI', 8), anchor='w').pack(side='left')
 
     # ── Log ───────────────────────────────────────────────────────────────────
-    def _build_log(self, parent):
-        ctk.CTkFrame(parent, fg_color=self.P['surface0'],
-                     height=1, corner_radius=0).pack(fill='x')
-        log_outer = ctk.CTkFrame(parent, fg_color=self.P['base'], corner_radius=0)
-        log_outer.pack(fill='both', expand=True, padx=6, pady=(2, 4))
+    def _build_log(self):
+        self._hsep()
+        log_outer = tk.Frame(self, bg=self.P['base'])
+        log_outer.pack(fill='both', expand=True, padx=6, pady=(0, 4))
 
-        self._log = ctk.CTkTextbox(
-            log_outer,
-            fg_color=self.P['crust'],
-            text_color=self.P['subtext0'],
-            font=('Consolas', 10),
-            height=80,
-            corner_radius=4,
-            border_width=0,
-            activate_scrollbars=True,
-            wrap='word',
-            state='disabled',
-        )
+        self._log = scrolledtext.ScrolledText(
+            log_outer, height=4, font=('Consolas', 8),
+            bg=self.P['crust'], fg=self.P['subtext0'],
+            insertbackground=self.P['text'],
+            state='disabled', wrap='word',
+            relief='flat', bd=0, padx=10, pady=8)
         self._log.pack(fill='both', expand=True)
 
         self._log_append(f'Read Screen Utility  v{VERSION}  |  {DATE}\n')
@@ -511,15 +462,18 @@ class App(ctk.CTk):
 
     # ── Coordinate picker ─────────────────────────────────────────────────────
     def _pick_coords(self):
+        """Minimise window then open fullscreen click-to-capture overlay."""
         self._pick_points = []
         self.iconify()
         self.after(300, self._pick_overlay_start)
 
     def _pick_overlay_start(self):
-        vx = ctypes.windll.user32.GetSystemMetrics(76)
-        vy = ctypes.windll.user32.GetSystemMetrics(77)
-        vw = ctypes.windll.user32.GetSystemMetrics(78)
-        vh = ctypes.windll.user32.GetSystemMetrics(79)
+        import ctypes
+        # Cover the entire virtual desktop (multi-monitor safe)
+        vx = ctypes.windll.user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+        vy = ctypes.windll.user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+        vw = ctypes.windll.user32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+        vh = ctypes.windll.user32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
 
         ov = tk.Toplevel(self)
         ov.overrideredirect(True)
@@ -529,6 +483,7 @@ class App(ctk.CTk):
         ov.configure(bg='black', cursor='crosshair')
         self._pick_overlay = ov
 
+        # Banner shown at top of screen
         banner = tk.Frame(ov, bg=self.P['base'])
         banner.pack(fill='x')
 
@@ -536,13 +491,15 @@ class App(ctk.CTk):
             banner,
             text='Click TOP-LEFT corner of survey data area    ESC = cancel',
             bg=self.P['base'], fg=self.P['green'],
-            font=('Consolas', 13, 'bold'), pady=10, padx=20)
+            font=('Consolas', 13, 'bold'), pady=10, padx=20
+        )
         self._pick_label.pack(side='left')
 
         self._pick_xy_label = tk.Label(
             banner, text='X: ---   Y: ---',
             bg=self.P['base'], fg=self.P['blue'],
-            font=('Consolas', 13), pady=10, padx=20)
+            font=('Consolas', 13), pady=10, padx=20
+        )
         self._pick_xy_label.pack(side='right')
 
         ov.bind('<Motion>',   self._on_pick_motion)
@@ -552,14 +509,16 @@ class App(ctk.CTk):
 
     def _on_pick_motion(self, event):
         self._pick_xy_label.config(
-            text=f'X: {event.x_root}   Y: {event.y_root}')
+            text=f'X: {event.x_root}   Y: {event.y_root}'
+        )
 
     def _on_pick_click(self, event):
         self._pick_points.append((event.x_root, event.y_root))
         if len(self._pick_points) == 1:
             self._pick_label.config(
                 text='Click BOTTOM-RIGHT corner of survey data area    ESC = cancel',
-                fg=self.P['peach'])
+                fg=self.P['peach']
+            )
         elif len(self._pick_points) == 2:
             self._pick_finish()
 
@@ -576,6 +535,7 @@ class App(ctk.CTk):
             self._pick_overlay = None
 
         (x1, y1), (x2, y2) = self._pick_points
+        # Normalise so x1,y1 is always the smaller corner
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
 
@@ -584,22 +544,24 @@ class App(ctk.CTk):
         self.var_x2.set(str(x2))
         self.var_y2.set(str(y2))
 
+        # Auto-switch to Manual mode and enable entries
         self.var_locate.set('manual')
         self._toggle_xy()
+
         self.deiconify()
         self._log_append(
-            f'Coordinates captured: X1={x1} Y1={y1}  X2={x2} Y2={y2}\n')
+            f'Coordinates captured: X1={x1} Y1={y1}  X2={x2} Y2={y2}\n'
+        )
 
     def _log_append(self, text):
         self._log.configure(state='normal')
         self._log.insert('end', text)
         try:
-            lines = int(self._log._textbox.index('end-1c').split('.')[0])
-            if lines > 400:
-                self._log._textbox.delete('1.0', '80.0')
+            if int(self._log.index('end-1c').split('.')[0]) > 400:
+                self._log.delete('1.0', '80.0')
         except Exception:
             pass
-        self._log.yview_moveto(1.0)
+        self._log.yview('end')
         self._log.configure(state='disabled')
 
     def _set_dot(self, color):
@@ -610,6 +572,7 @@ class App(ctk.CTk):
             lbl.configure(text=fmt_val(val))
         for lbl, val in zip(self._lbl_rss, rss):
             lbl.configure(text=fmt_val(val))
+        # Flash white briefly on update (shows program is still reading)
         for lbl in self._lbl_mwd + self._lbl_rss:
             lbl.configure(fg='#ffffff')
         self.after(80, lambda m=mwd, r=rss: self._restore_value_colors(m, r))
@@ -651,10 +614,10 @@ class App(ctk.CTk):
             self.var_interval.set(cfg.get('interval',     '2'))
             self.var_tool.set(    cfg.get('tool',         'rss'))
             self.var_locate.set(  cfg.get('locate',       'auto'))
-            self.var_x1.set(      cfg.get('loc_x1',       '10'))
-            self.var_y1.set(      cfg.get('loc_y1',       '10'))
-            self.var_x2.set(      cfg.get('loc_x2',       '100'))
-            self.var_y2.set(      cfg.get('loc_y2',       '100'))
+            self.var_x1.set(    cfg.get('loc_x1',       '10'))
+            self.var_y1.set(    cfg.get('loc_y1',       '10'))
+            self.var_x2.set(    cfg.get('loc_x2',       '100'))
+            self.var_y2.set(    cfg.get('loc_y2',       '100'))
             self._toggle_xy()
             self._log_append(
                 f'Config: method={cfg.get("method")}  '
@@ -675,26 +638,24 @@ class App(ctk.CTk):
             except: return default
 
         config = {
-            'method':   self.var_method.get(),
-            'tool':     self.var_tool.get(),
-            'locate':   self.var_locate.get(),
-            'scale':    max(1, min(10, _int(self.var_scale.get(), 3))),
-            'interval': max(1, min(60, _int(self.var_interval.get(), 2))),
-            'x1':       _int(self.var_x1.get(), 10),
-            'y1':       _int(self.var_y1.get(), 10),
-            'x2':       _int(self.var_x2.get(), 100),
-            'y2':       _int(self.var_y2.get(), 100),
+            'method':    self.var_method.get(),
+            'tool':      self.var_tool.get(),
+            'locate':    self.var_locate.get(),
+            'scale':     max(1, min(10, _int(self.var_scale.get(), 3))),
+            'interval':  max(1, min(60, _int(self.var_interval.get(), 2))),
+            'x1':        _int(self.var_x1.get(), 10),
+            'y1':        _int(self.var_y1.get(), 10),
+            'x2':        _int(self.var_x2.get(), 100),
+            'y2':        _int(self.var_y2.get(), 100),
         }
 
         self._stop_event.clear()
         self._btn_start.configure(state='disabled',
-                                   fg_color=self.P['surface0'],
-                                   text_color=self.P['overlay0'],
-                                   hover_color=self.P['surface0'])
+                                   bg=self.P['surface0'], fg=self.P['overlay0'],
+                                   activebackground=self.P['surface0'])
         self._btn_stop.configure(state='normal',
-                                  fg_color=self.P['red'],
-                                  text_color=self.P['crust'],
-                                  hover_color=self._lighten(self.P['red']))
+                                  bg=self.P['red'], fg=self.P['crust'],
+                                  activebackground=self._lighten(self.P['red']))
         self._set_dot(self.P['yellow'])
         self._show_tab('Data')
         self._worker = threading.Thread(target=self._worker_loop,
@@ -704,9 +665,8 @@ class App(ctk.CTk):
     def _stop(self):
         self._stop_event.set()
         self._btn_stop.configure(state='disabled',
-                                  fg_color=self.P['surface0'],
-                                  text_color=self.P['overlay0'],
-                                  hover_color=self.P['surface0'])
+                                  bg=self.P['surface0'], fg=self.P['overlay0'],
+                                  activebackground=self.P['surface0'])
         self._status_var.set('Stopping...')
         self._set_dot(self.P['yellow'])
 
@@ -718,7 +678,7 @@ class App(ctk.CTk):
     def _poll_queue(self):
         try:
             while True:
-                msg  = self._queue.get_nowait()
+                msg = self._queue.get_nowait()
                 kind = msg[0]
                 if kind == 'log':
                     self._log_append(msg[1])
@@ -735,14 +695,12 @@ class App(ctk.CTk):
                 elif kind == 'stopped':
                     self._btn_start.configure(
                         state='normal',
-                        fg_color=self.P['green'],
-                        text_color=self.P['crust'],
-                        hover_color=self._lighten(self.P['green']))
+                        bg=self.P['green'], fg=self.P['crust'],
+                        activebackground=self._lighten(self.P['green']))
                     self._btn_stop.configure(
                         state='disabled',
-                        fg_color=self.P['surface0'],
-                        text_color=self.P['overlay0'],
-                        hover_color=self.P['surface0'])
+                        bg=self.P['surface0'], fg=self.P['overlay0'],
+                        activebackground=self.P['surface0'])
                     self._status_var.set('Stopped')
                     self._set_dot(self.P['overlay0'])
                     self._show_tab('Setup')
@@ -753,7 +711,7 @@ class App(ctk.CTk):
     def _q(self, *args):
         self._queue.put(args)
 
-    # ── Worker thread (unchanged logic from main-cli.py) ──────────────────────
+    # ── Worker thread ─────────────────────────────────────────────────────────
     def _worker_loop(self, config):
         method    = config['method']
         tool      = config['tool']
@@ -808,16 +766,18 @@ class App(ctk.CTk):
                         (b[0]+7, b[1], b[2]-7, b[3]-7), all_screens=True)
                     w, h = img.size
                     if tool == 'rss':
+                        # MD/INC/AZI cols only: x=45.5-78%, y=92.0-99.9%
                         crop = (w - round(w*0.545), round(h*0.920),
                                 w - round(w*0.22),  round(h*0.999))
                     else:
+                        # MD/INC/AZI cols only: x=40-76%, y=94.9-99.9%
                         crop = (w - round(w*0.60),  round(h*0.949),
                                 w - round(w*0.24),  round(h*0.999))
                     img = img.crop(crop)
 
                 img.save('screenshot.png')
 
-                # Preprocess
+                # Preprocess (same as main-cli.py)
                 cv_img = cv2.imread('screenshot.png')
                 if cv_img is None:
                     raise FileNotFoundError('Cannot read screenshot.png')
@@ -826,18 +786,19 @@ class App(ctk.CTk):
                 cv_img = cv2.filter2D(cv_img, -1, _sharpen_kernel)
 
                 if method == 'replace':
-                    hsv   = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
-                    avg_v = float(np.mean(hsv[:, :, 2]))
-                    mask  = cv2.inRange(hsv,
-                                       np.array([30,  80,  80]),
-                                       np.array([100, 255, 255]))
-                    out   = np.full_like(cv_img, 255)
+                    hsv    = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+                    avg_v  = float(np.mean(hsv[:, :, 2]))
+                    mask   = cv2.inRange(hsv,
+                                        np.array([30,  80,  80]),
+                                        np.array([100, 255, 255]))
+                    out    = np.full_like(cv_img, 255)
                     out[mask > 0] = 0
                     if avg_v > 150:
+                        # Motor: bright green bg → invert → black text on white bg
                         out = cv2.bitwise_not(out)
-                    out  = cv2.copyMakeBorder(out, 20, 20, 20, 20,
-                                              cv2.BORDER_CONSTANT, value=[255, 255, 255])
-                    pil  = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+                    out    = cv2.copyMakeBorder(out, 20, 20, 20, 20,
+                                                cv2.BORDER_CONSTANT, value=[255, 255, 255])
+                    pil    = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
 
                 elif method == 'threshold':
                     cv_img  = cv2.bilateralFilter(cv_img, 5, 75, 75)
@@ -867,6 +828,7 @@ class App(ctk.CTk):
 
                 mwd = (parse_survey_line(lines[0], 'M')
                        if len(lines) > 0 else ['0.00', '0.00', '0.00'])
+                # Only parse RSS row when tool is RSS; motor has only one data row
                 if tool == 'rss':
                     rss = (parse_survey_line(lines[1], 'R')
                            if len(lines) > 1 else ['0.00', '0.00', '0.00'])
@@ -877,6 +839,8 @@ class App(ctk.CTk):
                 if tool == 'rss':
                     rss = data_check(rss)
 
+                # Resolve: returns (disp_vals, csv_vals, is_ok)
+                # csv_vals are always zeros on any error; disp_vals show OOR/NaN
                 def resolve(lst, last):
                     if lst[0] == '9.99':
                         return ['OOR', 'OOR', 'OOR'], ['0.00', '0.00', '0.00'], False
@@ -898,7 +862,7 @@ class App(ctk.CTk):
                     rss_disp = ['--', '--', '--']
                     rss_csv  = ['0.00', '0.00', '0.00']
 
-                # Write CSV
+                # Write CSV (zeros on error)
                 for _ in range(10):
                     try:
                         with open('output.csv', 'w', newline='') as f:
@@ -924,7 +888,7 @@ class App(ctk.CTk):
 
             except Exception as e:
                 ts = time.strftime('%H:%M:%S')
-                self._q('log',    f'[{ts}] Error: {e}\n')
+                self._q('log',   f'[{ts}] Error: {e}\n')
                 self._q('status', 'Error — retrying...')
 
             # Responsive wait
